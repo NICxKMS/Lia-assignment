@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useCallback, memo, useState } from 'react'
+import React, { useRef, useEffect, useCallback, memo } from 'react'
 import { Square, RotateCcw, AlertCircle, ArrowUp } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -40,16 +40,6 @@ const ChatInput = memo<ChatInputProps>(({
   setProvider
 }) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  // Use local state for immediate responsiveness
-  const [localInput, setLocalInput] = useState(input)
-  const isComposingRef = useRef(false)
-  
-  // Sync local state with parent when parent changes (e.g., after submit clears it)
-  useEffect(() => {
-    if (input !== localInput && !isComposingRef.current) {
-      setLocalInput(input)
-    }
-  }, [input])
   
   // Auto-resize textarea
   const adjustHeight = useCallback(() => {
@@ -59,17 +49,15 @@ const ChatInput = memo<ChatInputProps>(({
     textarea.style.height = Math.min(textarea.scrollHeight, 200) + 'px'
   }, [])
 
-  useEffect(() => adjustHeight(), [localInput, adjustHeight])
+  useEffect(() => adjustHeight(), [input, adjustHeight])
   useEffect(() => { if (status === 'ready') textareaRef.current?.focus() }, [status])
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey && localInput.trim() && status === 'ready') {
+    if (e.key === 'Enter' && !e.shiftKey && input.trim() && status === 'ready') {
       e.preventDefault()
-      // Sync to parent before submit
-      setInput(localInput)
       onSubmit(e)
     }
-  }, [localInput, status, onSubmit, setInput])
+  }, [input, status, onSubmit])
 
   const handleModelChange = useCallback((value: string) => {
     setModel(value)
@@ -77,18 +65,14 @@ const ChatInput = memo<ChatInputProps>(({
   }, [setModel, setProvider])
 
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const value = e.target.value
-    setLocalInput(value)
-    // Sync to parent immediately for form state
-    setInput(value)
+    setInput(e.target.value)
   }, [setInput])
 
   const handleSubmit = useCallback((e: React.FormEvent) => {
     e.preventDefault()
-    if (!localInput.trim() || status !== 'ready') return
-    setInput(localInput)
+    if (!input.trim() || status !== 'ready') return
     onSubmit(e)
-  }, [localInput, status, setInput, onSubmit])
+  }, [input, status, onSubmit])
 
   const isDisabled = status !== 'ready'
   const showStop = status === 'streaming' || status === 'submitted'
@@ -127,11 +111,9 @@ const ChatInput = memo<ChatInputProps>(({
             
             <textarea
               ref={textareaRef}
-              value={localInput}
+              value={input}
               onChange={handleInputChange}
               onKeyDown={handleKeyDown}
-              onCompositionStart={() => { isComposingRef.current = true }}
-              onCompositionEnd={() => { isComposingRef.current = false }}
               placeholder="Send a message..."
               rows={1}
               disabled={isDisabled}
@@ -162,10 +144,10 @@ const ChatInput = memo<ChatInputProps>(({
                 <Button 
                   type="submit" 
                   size="icon"
-                  disabled={!localInput.trim() || isDisabled}
+                  disabled={!input.trim() || isDisabled}
                   className={cn(
                     'h-8 w-8 rounded-full transition-all',
-                    localInput.trim() ? 'bg-foreground text-background hover:bg-foreground/90' : 'bg-muted text-muted-foreground'
+                    input.trim() ? 'bg-foreground text-background hover:bg-foreground/90' : 'bg-muted text-muted-foreground'
                   )}
                 >
                   <ArrowUp className="w-4 h-4" />

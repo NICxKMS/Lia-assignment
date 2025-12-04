@@ -9,14 +9,14 @@ vi.mock('framer-motion', async () => {
   const { createElement, forwardRef } = actual as typeof import('react')
   return {
     motion: {
-      div: forwardRef((props: any, ref: any) => 
+      div: forwardRef((props: React.HTMLAttributes<HTMLDivElement> & { children?: React.ReactNode }, ref: React.Ref<HTMLDivElement>) => 
         createElement('div', { ref, ...props }, props.children)
       ),
-      span: forwardRef((props: any, ref: any) => 
+      span: forwardRef((props: React.HTMLAttributes<HTMLSpanElement> & { children?: React.ReactNode }, ref: React.Ref<HTMLSpanElement>) => 
         createElement('span', { ref, ...props }, props.children)
       ),
     },
-    AnimatePresence: ({ children }: any) => children,
+    AnimatePresence: ({ children }: { children?: React.ReactNode }) => children,
   }
 })
 

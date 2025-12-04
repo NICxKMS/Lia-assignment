@@ -12,7 +12,7 @@ vi.mock('framer-motion', async () => {
   const { createElement, forwardRef } = actual as typeof import('react')
   return {
     motion: {
-      div: forwardRef(({ className, onClick, ...props }: any, ref: any) => {
+      div: forwardRef(({ className, ...props }: React.HTMLAttributes<HTMLDivElement> & { children?: React.ReactNode }, ref: React.Ref<HTMLDivElement>) => {
         // Skip mobile overlay and mobile drawer (lg:hidden elements)
         if (className?.includes('lg:hidden') || className?.includes('fixed inset-0') || className?.includes('fixed inset-y-0')) {
           return null
@@ -22,7 +22,7 @@ vi.mock('framer-motion', async () => {
         return createElement('div', { ref, className: testClassName, ...props }, props.children)
       }),
     },
-    AnimatePresence: ({ children }: any) => children,
+    AnimatePresence: ({ children }: { children?: React.ReactNode }) => children,
   }
 })
 
