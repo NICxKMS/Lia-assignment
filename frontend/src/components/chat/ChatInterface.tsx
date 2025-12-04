@@ -206,6 +206,11 @@ const ChatInterface: React.FC = () => {
         staleTime: 60 * 1000, // Consider fresh for 1 minute
       })
       
+      if (!conv) {
+        console.error('Failed to load conversation: no data returned')
+        return
+      }
+      
       const loadedMessages: BaseChatMessage[] = conv.messages.map(msg => {
         const sentimentData = msg.sentiment_data as { 
           message?: SentimentResult
