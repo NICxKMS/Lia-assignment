@@ -59,9 +59,9 @@ services:
       - key: UPSTASH_REDIS_REST_TOKEN
         sync: false
       
-      # CORS - Update with your frontend URL
+      # CORS - Frontend URLs
       - key: CORS_ORIGINS
-        value: https://your-frontend.vercel.app,http://localhost:5173
+        value: https://lia.nicx.app,http://localhost:5173,http://localhost:3000
       
       # Rate Limiting
       - key: RATE_LIMIT_ENABLED

@@ -55,7 +55,7 @@ class Settings(BaseSettings):
 
     # ========== CORS ==========
     cors_origins_str: str = Field(
-        default="http://localhost:5173,http://localhost:3000",
+        default="http://localhost:5173,http://localhost:3000,https://lia.nicx.app",
         alias="CORS_ORIGINS",
         description="Comma-separated CORS origins",
     )
