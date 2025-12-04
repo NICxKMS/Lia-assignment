@@ -1,0 +1,110 @@
+"""FastAPI application entry point."""
+
+from contextlib import asynccontextmanager
+from typing import AsyncGenerator
+
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+import structlog
+
+from app.api import auth_router, chat_router, health_router
+from app.core.config import get_settings
+from app.core.exceptions import (
+    AppException,
+    app_exception_handler,
+    http_exception_handler,
+    unhandled_exception_handler,
+)
+from app.core.logging import get_logger, setup_logging
+from app.db.session import close_db, init_db
+from app.services.llm import get_llm_service
+from app.services.rate_limit import get_rate_limit_service
+
+# Initialize logging first
+setup_logging()
+logger = get_logger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    """Application lifespan manager for startup and shutdown events.
+    
+    Startup:
+    - Initialize database connections
+    - Pre-warm LLM adapters to eliminate first-request latency
+    
+    Shutdown:
+    - Close database connections
+    - Close HTTP client connections (rate limiter)
+    """
+    settings = get_settings()
+    
+    logger.info(
+        "Starting application",
+        app_name=settings.app_name,
+        version=settings.app_version,
+        debug=settings.debug,
+    )
+    
+    # Initialize database
+    await init_db()
+    logger.info("Database initialized")
+    
+    # Pre-warm LLM adapters to eliminate first-request latency
+    llm_service = get_llm_service()
+    llm_service.prewarm_adapters()
+    logger.info("LLM adapters pre-warmed")
+    
+    yield
+    
+    # Cleanup
+    logger.info("Shutting down application")
+    
+    # Close rate limiter HTTP client
+    rate_limiter = get_rate_limit_service()
+    await rate_limiter.close()
+    logger.info("Rate limiter connections closed")
+    
+    await close_db()
+    logger.info("Database connections closed")
+
+
+def create_app() -> FastAPI:
+    """Create and configure the FastAPI application."""
+    settings = get_settings()
+    
+    app = FastAPI(
+        title=settings.app_name,
+        description="AI Chatbot API with Multi-LLM Support and Sentiment Analysis",
+        version=settings.app_version,
+        lifespan=lifespan,
+        docs_url="/docs" if settings.debug else None,
+        redoc_url="/redoc" if settings.debug else None,
+        openapi_url="/openapi.json" if settings.debug else "/api/openapi.json",
+    )
+    
+    # Configure CORS
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+        expose_headers=["X-Request-ID"],
+    )
+    
+    # Register exception handlers
+    app.add_exception_handler(AppException, app_exception_handler)  # type: ignore[arg-type]
+    app.add_exception_handler(HTTPException, http_exception_handler)  # type: ignore[arg-type]
+    app.add_exception_handler(Exception, unhandled_exception_handler)  # type: ignore[arg-type]
+    
+    # Include routers
+    app.include_router(health_router)
+    app.include_router(auth_router, prefix="/api/v1")
+    app.include_router(chat_router, prefix="/api/v1")
+    
+    return app
+
+
+# Create application instance
+app = create_app()

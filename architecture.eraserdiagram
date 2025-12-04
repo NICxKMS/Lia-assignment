@@ -1,0 +1,63 @@
+// Chatbot System Architecture
+// Preserving user-defined icons
+
+title "Chatbot - High-Level Architecture & NLP Strategies"
+
+// --- Client Layer ---
+ClientGroup [label: "Client Layer"] {
+  Browser [icon: aws-front-end-web-mobile, label: "React Client\n(Browser SPA)"]
+}
+
+// --- Edge & API Layer ---
+EdgeGroup [label: "Edge & Networking"] {
+  LoadBalancer [icon: azure-cdn-profiles, label: "CDN\n(Load Balancer)"]
+  BackendAPI [icon: aws-api-gateway, label: "Backend API\n(FastAPI / ASGI)"]
+}
+
+// --- Core Services Layer ---
+CoreGroup [label: "Core Services"] {
+  Orchestrator [icon: gcp-cloud-gpu, label: "Orchestrator\n(Logic Hub)"]
+  Sentiment [icon: gcp-healthcare-nlp-api, label: "Sentiment Engine\n(Analysis Logic)"]
+  JobQueue [icon: aws-ec2, label: "Async Workers\n(Celery/Dramatiq)"]
+  Cache [icon: aws-memorydb-for-redis, label: "Session Cache\n(Redis)"]
+}
+
+// --- Storage & AI Layer ---
+StorageGroup [label: "Data & Intelligence"] {
+  PrimaryDB [icon: postgres, label: "Primary DB\n(Postgres)"]
+  LLMService [icon: openai, label: "LLM Provider\n(OpenAI/Anthropic)"]
+  NLPService [icon: nlp, label: "NLP APIs\n(Google/Azure)"]
+}
+
+// --- Operations Layer ---
+OpsGroup [label: "Security & Monitoring"] {
+  Monitor [icon: open-telemetry, label: "Telemetry\n(Prometheus/Grafana)"]
+  Security [icon: gcp-auth, label: "Secrets Vault\n(Key Management)"]
+}
+
+// --- Standard Connections ---
+Browser > LoadBalancer: "HTTPS / WSS"
+LoadBalancer > BackendAPI: "Routing"
+BackendAPI > Orchestrator: "Parsed Request"
+BackendAPI > Monitor: "Metrics"
+BackendAPI > Security: "Auth Check"
+Orchestrator > JobQueue: "Background Tasks"
+Orchestrator > Cache: "Read Context"
+Orchestrator > Monitor: "Traces"
+JobQueue > PrimaryDB: "Persist Data"
+
+// --- THE 3 NLP STRATEGIES ---
+
+// Strategy 1: Using specialized NLP API
+// Flow: Orchestrator -> Sentiment Engine -> External NLP API
+Orchestrator > Sentiment: "If Method 1 or 2"
+Sentiment > NLPService: "Method 1: API Call\n(Specialized)"
+
+// Strategy 2: Using a separate model request
+// Flow: Sentiment Engine -> LLM Service (dedicated call for sentiment only)
+Sentiment > LLMService: "Method 2: Classification\n(Separate LLM Call)"
+
+// Strategy 3: Using Structured Output (Single Request)
+// Flow: Orchestrator -> LLM Service (bypassing Sentiment Engine)
+// The LLM returns both the Assistant Message AND the Sentiment Analysis in one JSON
+Orchestrator > LLMService: "Only Message \nOR \nMethod 3: Structured Output\n(Message + Sentiment)"
