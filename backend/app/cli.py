@@ -7,8 +7,15 @@ def dev() -> None:
     uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
 
 def start() -> None:
+    """Start server (single worker, good for containers like Render/Railway)."""
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run("app.main:app", host="0.0.0.0", port=port)
+
+def prod() -> None:
+    """Start production server with multiple workers."""
+    port = int(os.environ.get("PORT", 8000))
+    workers = int(os.environ.get("WORKERS", 4))
+    uvicorn.run("app.main:app", host="0.0.0.0", port=port, workers=workers)
 
 def migrate() -> None:
     alembic_main(["upgrade", "head"])

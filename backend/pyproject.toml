@@ -66,6 +66,7 @@ packages = ["app"]
 [project.scripts]
 dev = "app.cli:dev"
 start = "app.cli:start"
+prod = "app.cli:prod"
 migrate = "app.cli:migrate"
 pytest = "app.cli:pytest"
 
