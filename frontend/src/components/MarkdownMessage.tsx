@@ -1,10 +1,8 @@
 import React, { useState, useCallback, useMemo, memo } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import rehypeHighlight from 'rehype-highlight'
 import rehypeRaw from 'rehype-raw'
 import { Check, Copy } from 'lucide-react'
-import 'highlight.js/styles/github-dark.css'
 
 interface MarkdownMessageProps {
   content: string
@@ -12,7 +10,7 @@ interface MarkdownMessageProps {
 
 // Memoized plugins arrays to prevent re-creation
 const remarkPlugins = [remarkGfm]
-const rehypePlugins = [rehypeHighlight, rehypeRaw]
+const rehypePlugins = [rehypeRaw]
 
 // Code block component with copy button - memoized
 const CodeBlock = memo<{

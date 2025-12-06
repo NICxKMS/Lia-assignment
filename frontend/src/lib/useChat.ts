@@ -20,6 +20,7 @@ export interface ChatMessage {
   id: string
   role: 'user' | 'assistant'
   content: string
+  thoughts?: string[]  // Model thinking process (for assistant messages)
   sentiment?: SentimentResult
   cumulativeSentiment?: SentimentResult
   timestamp: Date
@@ -37,12 +38,21 @@ export interface UseChatOptions {
   onConversationIdChange?: (id: string) => void
 }
 
+export interface ModelSettings {
+  temperature: number
+  maxTokens: number
+  topP: number
+  frequencyPenalty: number
+  presencePenalty: number
+}
+
 export interface SendMessageOptions {
   token: string | null
   method: string
   provider: string
   model: string
   conversationId?: string
+  modelSettings?: ModelSettings
 }
 
 // ============ SSE Event Types ============
@@ -53,6 +63,10 @@ interface SSEStartEvent {
 }
 
 interface SSEChunkEvent {
+  content: string
+}
+
+interface SSEThoughtEvent {
   content: string
 }
 
@@ -150,6 +164,7 @@ export function useChat(options: UseChatOptions = {}) {
       id: assistantId,
       role: 'assistant',
       content: '',
+      thoughts: [],  // Track thinking content
       timestamp: new Date(),
       isStreaming: true,
     }
@@ -174,6 +189,13 @@ export function useChat(options: UseChatOptions = {}) {
           provider: opts.provider,
           model: opts.model,
           conversation_id: opts.conversationId,
+          model_settings: opts.modelSettings ? {
+            temperature: opts.modelSettings.temperature,
+            max_tokens: opts.modelSettings.maxTokens,
+            top_p: opts.modelSettings.topP,
+            frequency_penalty: opts.modelSettings.frequencyPenalty,
+            presence_penalty: opts.modelSettings.presencePenalty,
+          } : undefined,
         }),
         signal: abortControllerRef.current.signal,
       })
@@ -193,6 +215,7 @@ export function useChat(options: UseChatOptions = {}) {
       const decoder = new TextDecoder()
       let buffer = ''
       let accumulatedContent = ''
+      const accumulatedThoughts: string[] = []  // Track thinking content
       let sentiment: SSESentimentEvent | null = null
 
       try {
@@ -235,6 +258,20 @@ export function useChat(options: UseChatOptions = {}) {
                 break
               }
 
+              case 'thought': {
+                const data = parsed.data as SSEThoughtEvent
+                if (data.content) {
+                  accumulatedThoughts.push(data.content)
+                  // Update assistant message with thoughts
+                  setMessages(prev => prev.map(msg => 
+                    msg.id === assistantId 
+                      ? { ...msg, thoughts: [...accumulatedThoughts] }
+                      : msg
+                  ))
+                }
+                break
+              }
+
               case 'sentiment': {
                 sentiment = parsed.data as SSESentimentEvent
                 break
@@ -261,6 +298,7 @@ export function useChat(options: UseChatOptions = {}) {
         id: assistantId,
         role: 'assistant',
         content: accumulatedContent,
+        thoughts: accumulatedThoughts.length > 0 ? accumulatedThoughts : undefined,
         timestamp: new Date(),
         isStreaming: false,
       }

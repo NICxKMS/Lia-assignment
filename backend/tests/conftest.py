@@ -8,6 +8,7 @@ Provides isolated test fixtures for:
 """
 
 import asyncio
+import os
 import uuid
 from collections.abc import AsyncGenerator
 from typing import Generator
@@ -21,13 +22,16 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from app.core.config import Settings
 from app.db.models import Base, Conversation, Message, User
 from app.db.session import get_db
-from app.main import app
 from app.services.cache import CacheService, get_cache_service
-from app.services.sentiment import SentimentResult, SentimentService
+from app.services.sentiment import CumulativeState, SentimentResult, SentimentService
 
 
 # Test database URL (SQLite in-memory with shared cache for proper async behavior)
 TEST_DATABASE_URL = "sqlite+aiosqlite:///file::memory:?cache=shared&uri=true"
+# Ensure application uses test database for health/readiness checks BEFORE app import
+os.environ.setdefault("DATABASE_URL", TEST_DATABASE_URL)
+
+from app.main import app  # noqa: E402  (import after setting env)
 
 
 # =============================================================================
@@ -231,7 +235,7 @@ async def conversation_with_messages(
             conversation_id=test_conversation.id,
             role="assistant",
             content="I'm doing well, thank you for asking!",
-            model_info={"provider": "gemini", "model": "gemini-2.0-flash"},
+            model_info={"provider": "gemini", "model": "gemini-2.5-flash"},
         ),
         Message(
             conversation_id=test_conversation.id,
@@ -242,7 +246,7 @@ async def conversation_with_messages(
             conversation_id=test_conversation.id,
             role="assistant",
             content="I can help with many things!",
-            model_info={"provider": "gemini", "model": "gemini-2.0-flash"},
+            model_info={"provider": "gemini", "model": "gemini-2.5-flash"},
         ),
     ]
     
@@ -305,14 +309,38 @@ def mock_cache_service_enabled() -> MagicMock:
 def mock_sentiment_service() -> MagicMock:
     """Create a mock sentiment service."""
     mock = MagicMock(spec=SentimentService)
-    mock.analyze = AsyncMock(
-        return_value=SentimentResult(
-            score=0.5,
-            label="Positive",
-            source="test",
-            emotion="happy",
-        )
+    sentiment_result = SentimentResult(
+        score=0.5,
+        label="Positive",
+        source="test",
+        emotion="happy",
     )
+    mock.analyze = AsyncMock(return_value=sentiment_result)
+    
+    # Mock update_cumulative for incremental sentiment
+    async def mock_update_cumulative(
+        new_message: str,
+        current_state: CumulativeState,
+        message_sentiment: SentimentResult | None,
+        provider: str = "gemini",
+        model: str = "gemini-2.5-flash-lite",
+    ) -> tuple[SentimentResult, CumulativeState]:
+        """Mock incremental sentiment update."""
+        new_state = CumulativeState(
+            summary=f"Updated summary after: {new_message[:20]}...",
+            score=message_sentiment.score if message_sentiment else 0.0,
+            count=current_state.count + 1,
+            label=message_sentiment.label if message_sentiment else "Neutral",
+        )
+        result = SentimentResult(
+            score=new_state.score,
+            label=new_state.label,
+            summary=new_state.summary,
+            source="incremental_mock",
+        )
+        return result, new_state
+    
+    mock.update_cumulative = AsyncMock(side_effect=mock_update_cumulative)
     mock.get_available_methods = MagicMock(
         return_value=["nlp_api", "llm_separate", "structured"]
     )
@@ -346,7 +374,7 @@ def mock_llm_service(mock_llm_adapter):
     service.get_adapter = MagicMock(return_value=mock_llm_adapter)
     service.get_all_models = MagicMock(return_value={
         "gemini": [
-            {"id": "gemini-2.0-flash", "name": "Gemini 2.0 Flash", "context_window": 1000000}
+            {"id": "gemini-2.5-flash", "name": "Gemini 2.0 Flash", "context_window": 1000000}
         ],
         "openai": [
             {"id": "gpt-4o", "name": "GPT-4o", "context_window": 128000}

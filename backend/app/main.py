@@ -17,8 +17,10 @@ from app.core.exceptions import (
 )
 from app.core.logging import get_logger, setup_logging
 from app.db.session import close_db, init_db
+from app.services.cache import get_cache_service
 from app.services.llm import get_llm_service
 from app.services.rate_limit import get_rate_limit_service
+from app.services.sentiment import get_sentiment_service
 
 # Initialize logging first
 setup_logging()
@@ -54,6 +56,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     llm_service = get_llm_service()
     llm_service.prewarm_adapters()
     logger.info("LLM adapters pre-warmed")
+
+    # Warm static caches (models, sentiment methods) if cache is configured
+    cache_service = get_cache_service()
+    sentiment_service = get_sentiment_service()
+    if cache_service.is_available:
+        await cache_service.set_available_models(llm_service.get_all_models())
+        await cache_service.set_sentiment_methods(sentiment_service.get_available_methods())
+        logger.info("Static caches warmed")
     
     yield
     
@@ -96,7 +106,7 @@ def create_app() -> FastAPI:
     # Register exception handlers
     app.add_exception_handler(AppException, app_exception_handler)  # type: ignore[arg-type]
     app.add_exception_handler(HTTPException, http_exception_handler)  # type: ignore[arg-type]
-    app.add_exception_handler(Exception, unhandled_exception_handler)  # type: ignore[arg-type]
+    app.add_exception_handler(Exception, unhandled_exception_handler)
     
     # Include routers
     app.include_router(health_router)

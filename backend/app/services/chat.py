@@ -3,7 +3,7 @@
 Coordinates the chat flow between:
 - Database (message persistence)
 - LLM Service (response generation)
-- Sentiment Service (sentiment analysis)
+- Sentiment Service (sentiment analysis with incremental cumulative tracking)
 - Cache Service (conversation context caching)
 
 Uses Server-Sent Events (SSE) for real-time streaming.
@@ -11,30 +11,86 @@ Optimized with parallel operations and comprehensive caching.
 """
 
 import asyncio
-import json
+import time
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import Any, Awaitable, Coroutine, TypeVar, cast
 
+import orjson
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
 from app.db.models import Conversation, Message, User
 from app.services.cache import CacheService, get_cache_service
-from app.services.llm import LLMService, StructuredStreamChunk, get_llm_service
-from app.services.sentiment import SentimentResult, SentimentService, get_sentiment_service
+from app.services.llm import LLMService, get_llm_service
+from app.services.sentiment import (
+    CumulativeState,
+    SentimentResult,
+    SentimentService,
+    get_sentiment_service,
+)
 
 logger = get_logger(__name__)
+T = TypeVar("T")
 
 # Default system prompt for the AI assistant
-DEFAULT_SYSTEM_PROMPT = """You are Lia, a helpful and friendly AI assistant.
-You provide clear, accurate, and thoughtful responses.
-Be conversational but professional. Keep responses concise unless more detail is needed."""
+DEFAULT_SYSTEM_PROMPT = """You are Lia, a helpful and friendly AI assistant created to provide thoughtful, accurate assistance.
+
+## Your Personality
+- Warm, conversational, and professional
+- Curious and genuinely interested in helping
+- Clear and concise - avoid unnecessary verbosity
+- Honest about limitations and uncertainties
+
+## Response Guidelines
+- Use markdown formatting for structure when helpful (headers, lists, code blocks)
+- For code: use appropriate language tags in code blocks
+- For complex topics: break down into digestible parts
+- Reference previous context when relevant to show continuity
+- Ask clarifying questions if the request is ambiguous
+
+## Tone
+- Match the user's energy and formality level
+- Be encouraging without being patronizing
+- Use light humor when appropriate, but stay helpful"""
 
 
 def sse_event(event_type: str, data: dict[str, Any]) -> str:
     """Format a Server-Sent Event."""
-    return f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
+    return f"event: {event_type}\ndata: {orjson.dumps(data).decode()}\n\n"
+
+
+def _create_tracked_task(
+    coro: Coroutine[Any, Any, T] | asyncio.Future[T] | Awaitable[T],
+    name: str,
+) -> asyncio.Task[T]:
+    """Create a background task that logs exceptions."""
+    task: asyncio.Task[T] = asyncio.create_task(cast(Any, coro), name=name)
+
+    def _log_result(t: asyncio.Task[Any]) -> None:
+        try:
+            t.result()
+        except asyncio.CancelledError:
+            pass
+        except Exception:  # noqa: BLE001
+            pass  # Logged at DEBUG level elsewhere if needed
+
+    task.add_done_callback(_log_result)
+    return task
+
+
+def _sentiment_stream_payload(result: SentimentResult | None) -> dict[str, Any] | None:
+    """Slim sentiment payload for SSE to reduce bandwidth."""
+    if not result:
+        return None
+    payload: dict[str, Any] = {
+        "score": round(result.score, 4),
+        "label": result.label,
+        "emotion": result.emotion,
+    }
+    if result.summary:
+        payload["summary"] = result.summary
+    return payload
 
 
 class ChatOrchestrator:
@@ -57,26 +113,31 @@ class ChatOrchestrator:
         message: str,
         conversation_id: str | None = None,
         provider: str = "gemini",
-        model: str = "gemini-2.0-flash",
+        model: str = "gemini-2.5-flash",
         sentiment_method: str = "llm_separate",
+        model_settings: dict[str, float | int] | None = None,
     ) -> AsyncIterator[str]:
         """
         Process a chat message with streaming response.
         
         Yields SSE formatted events:
         - event: start     -> { conversation_id, message_id }
+        - event: thought   -> { content }  (model thinking process)
         - event: chunk     -> { content }
         - event: sentiment -> { message: {...}, cumulative: {...} | null }
         - event: done      -> { finish_reason }
         - event: error     -> { message }
         """
-        logger.info(
-            "Processing chat",
-            user_id=user.id,
-            provider=provider,
-            model=model,
-            sentiment_method=sentiment_method,
-        )
+        start_time = time.monotonic()
+        
+        # Extract model settings with defaults and normalize types
+        raw_temperature = model_settings.get("temperature", 0.7) if model_settings else 0.7
+        temperature = float(raw_temperature)
+
+        raw_max_tokens = model_settings.get("max_tokens", 2048) if model_settings else 2048
+        max_tokens = int(raw_max_tokens)
+        # Use user-selected model for sentiment; fall back per provider
+        sentiment_model = "gemini-2.5-flash" if provider == "gemini" else "gpt-4.1"
 
         try:
             # Get or create conversation
@@ -116,29 +177,37 @@ class ChatOrchestrator:
             # Get LLM adapter
             adapter = self.llm_service.get_adapter(provider)
             full_response = ""
+            thoughts: list[str] = []  # Track thinking content
             message_sentiment: SentimentResult | None = None
             sentiment_task: asyncio.Task[SentimentResult] | None = None
-            
-            # Count existing user messages from context to decide if we need cumulative sentiment
-            # Context has max 10 messages, so we need DB query only for cumulative analysis
-            existing_user_count = sum(1 for m in context if m.get("role") == "user")
+            cumulative_task: asyncio.Task[tuple[SentimentResult, CumulativeState]] | None = None
+
+            # Get current cumulative state for parallelization decision
+            current_state = CumulativeState.from_dict(conversation.sentiment_state)
 
             if sentiment_method == "structured":
                 # Structured: Single LLM call with response + sentiment
-                async for chunk in adapter.generate_structured_stream(
+                async for struct_chunk in adapter.generate_structured_stream(
                     messages=context,
                     model=model,
                     system_prompt=DEFAULT_SYSTEM_PROMPT,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
                 ):
-                    if chunk.content:
-                        full_response += chunk.content
-                        yield sse_event("chunk", {"content": chunk.content})
+                    if struct_chunk.content:
+                        # Check if this is a thought chunk
+                        if hasattr(struct_chunk, 'is_thought') and struct_chunk.is_thought:
+                            thoughts.append(struct_chunk.content)
+                            yield sse_event("thought", {"content": struct_chunk.content})
+                        else:
+                            full_response += struct_chunk.content
+                            yield sse_event("chunk", {"content": struct_chunk.content})
 
-                    if chunk.is_final and isinstance(chunk, StructuredStreamChunk):
+                    if struct_chunk.is_final:
                         message_sentiment = SentimentResult(
-                            score=chunk.sentiment_score or 0.0,
-                            label=chunk.sentiment_label or "Neutral",
-                            emotion=chunk.sentiment_emotion,
+                            score=struct_chunk.sentiment_score or 0.0,
+                            label=struct_chunk.sentiment_label or "Neutral",
+                            emotion=struct_chunk.sentiment_emotion,
                             source="structured",
                             details={"provider": provider, "model": model},
                         )
@@ -146,61 +215,86 @@ class ChatOrchestrator:
             else:
                 # OPTIMIZATION: Start sentiment analysis immediately in parallel
                 # with streaming response to reduce total latency
-                sentiment_task = asyncio.create_task(
+                sentiment_task = _create_tracked_task(
                     self.sentiment_service.analyze(
                         message,
                         sentiment_method,
                         provider,
                         model,
-                    )
+                    ),
+                    "sentiment:message",
                 )
                 
-                # Regular streaming response
+                # OPTIMIZATION: For subsequent messages (count > 0), start cumulative
+                # sentiment in parallel - only for Gemini (incremental API).
+                # For non-Gemini providers we wait for per-message sentiment so
+                # the weighted average can include it.
+                if provider == "gemini" and current_state.count > 0:
+                    cumulative_task = _create_tracked_task(
+                        self.sentiment_service.update_cumulative(
+                            new_message=message,
+                            current_state=current_state,
+                            message_sentiment=None,  # Not needed for count > 0
+                            provider=provider,
+                            model=sentiment_model,
+                        ),
+                        "sentiment:cumulative",
+                    )
+                
+                # Regular streaming response with thought detection
                 async for chunk in adapter.generate_stream(
                     messages=context,
                     model=model,
                     system_prompt=DEFAULT_SYSTEM_PROMPT,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
                 ):
                     if chunk.content:
-                        full_response += chunk.content
-                        yield sse_event("chunk", {"content": chunk.content})
+                        if chunk.is_thought:
+                            thoughts.append(chunk.content)
+                            yield sse_event("thought", {"content": chunk.content})
+                        else:
+                            full_response += chunk.content
+                            yield sse_event("chunk", {"content": chunk.content})
                     if chunk.is_final:
                         break
 
                 # Await sentiment result (should already be done or nearly done)
-                message_sentiment = await sentiment_task
+                try:
+                    message_sentiment = await sentiment_task
+                except Exception:  # noqa: BLE001
+                    message_sentiment = SentimentResult.neutral()
 
-            # Calculate cumulative sentiment for multiple user messages
-            # OPTIMIZATION: Use cache-first for user messages (low TTL ensures freshness)
+            # INCREMENTAL CUMULATIVE SENTIMENT
+            # Instead of re-analyzing all messages, update a rolling summary - O(1) per message
             cumulative_sentiment: SentimentResult | None = None
+            new_state: CumulativeState
             
-            # +1 for current message being added
-            message_count = existing_user_count + 1
-
-            should_calculate_cumulative = message_count > 1
-            
-            cumulative_task: asyncio.Task[SentimentResult] | None = None
-            if should_calculate_cumulative:
-                # Use optimized cache-first method, pass current message directly
-                # This avoids refetching since current message isn't in DB yet
-                all_user_messages = await self._get_user_messages(
-                    db, conversation.id, include_current=message
-                )
-                # Limit text length to avoid token limits (e.g. 50k chars)
-                combined_text = "\n".join(all_user_messages)
-                if len(combined_text) > 50000:
-                    combined_text = combined_text[-50000:]
-                
-                method = "llm_separate" if sentiment_method == "structured" else sentiment_method
-                cumulative_task = asyncio.create_task(
-                    self.sentiment_service.analyze(
-                        combined_text, method, provider, model
-                    )
-                )
-
-            # Await cumulative sentiment if task was started
             if cumulative_task:
-                cumulative_sentiment = await cumulative_task
+                # Await parallel cumulative task (for count > 0)
+                try:
+                    cumulative_sentiment, new_state = await cumulative_task
+                except Exception:  # noqa: BLE001
+                    # Fallback: use weighted average if parallel task failed
+                    cumulative_sentiment, new_state = await self.sentiment_service.update_cumulative(
+                        new_message=message,
+                        current_state=current_state,
+                        message_sentiment=message_sentiment,
+                        provider=provider,
+                        model=sentiment_model,
+                    )
+            else:
+                # Sequential for first message (count == 0) - needs message_sentiment
+                cumulative_sentiment, new_state = await self.sentiment_service.update_cumulative(
+                    new_message=message,
+                    current_state=current_state,
+                    message_sentiment=message_sentiment,
+                    provider=provider,
+                    model=sentiment_model,
+                )
+            
+            # Persist the updated sentiment state to the conversation
+            conversation.sentiment_state = new_state.to_dict()
 
             # Update user message with sentiment data
             user_message.sentiment_data = {
@@ -213,45 +307,53 @@ class ChatOrchestrator:
                 conversation_id=conversation.id,
                 role="assistant",
                 content=full_response,
-                model_info={"provider": provider, "model": model},
+                model_info={
+                    "provider": provider,
+                    "model": model,
+                    "thoughts": thoughts if thoughts else None,
+                },
             )
             db.add(assistant_message)
             await db.flush()
 
-            # Update caches: context, user messages, and invalidate history cache
-            # Use efficient append operations instead of replacing entire context
+            # Update caches: context and invalidate history cache
             if self.cache_service.is_available:
-                # Append both user and assistant messages efficiently
                 await asyncio.gather(
                     self.cache_service.append_to_context(
                         conversation.id, {"role": "user", "content": message}
                     ),
                     self.cache_service.append_to_context(
-                        conversation.id, {"role": "assistant", "content": full_response}
+                        conversation.id, {
+                            "role": "assistant",
+                            "content": full_response,
+                            "thoughts": thoughts if thoughts else None,
+                        }
                     ),
-                    # Update user messages cache for faster cumulative sentiment next time
-                    self.cache_service.append_user_message(conversation.id, message),
                     self.cache_service.invalidate_user_history(user.id),
                     return_exceptions=True,
                 )
 
-            logger.debug(
+            # Log completion with timing
+            duration_ms = int((time.monotonic() - start_time) * 1000)
+            logger.info(
                 "Chat completed",
+                user_id=user.id,
                 conversation_id=conversation.id,
-                response_length=len(full_response),
+                duration_ms=duration_ms,
+                response_len=len(full_response),
             )
 
             # Send sentiment event
             yield sse_event("sentiment", {
-                "message": message_sentiment.to_dict() if message_sentiment else None,
-                "cumulative": cumulative_sentiment.to_dict() if cumulative_sentiment else None,
+                "message": _sentiment_stream_payload(message_sentiment),
+                "cumulative": _sentiment_stream_payload(cumulative_sentiment),
             })
 
             # Send done event
             yield sse_event("done", {"finish_reason": "stop"})
 
         except Exception as e:
-            logger.error("Chat stream error", error=str(e))
+            logger.error("Chat stream error", user_id=user.id, error=str(e))
             yield sse_event("error", {"message": str(e)})
 
     async def _get_or_create_conversation(
@@ -303,56 +405,6 @@ class ChatOrchestrator:
         messages = result.scalars().all()
         return [{"role": m.role, "content": m.content} for m in reversed(messages)]
 
-    async def _get_user_messages(
-        self,
-        db: AsyncSession,
-        conversation_id: str,
-        include_current: str | None = None,
-    ) -> list[str]:
-        """Fetch all user message contents for cumulative sentiment analysis.
-        
-        Optimized with cache-first strategy:
-        1. Check cache first (low TTL for freshness)
-        2. Fall back to DB on cache miss
-        3. Populate cache on miss for subsequent requests
-        
-        Args:
-            db: Database session
-            conversation_id: Conversation ID
-            include_current: Current message to append (not yet in DB/cache)
-        """
-        # Try cache first (should be fast with low TTL)
-        if self.cache_service.is_available:
-            cached = await self.cache_service.get_user_messages(conversation_id)
-            if cached is not None:
-                # Append current message if provided
-                if include_current:
-                    return cached + [include_current]
-                return cached
-        
-        # Cache miss - fetch from database (optimized: only content column)
-        result = await db.execute(
-            select(Message.content)
-            .where(
-                Message.conversation_id == conversation_id,
-                Message.role == "user"
-            )
-            .order_by(Message.created_at.asc())
-        )
-        messages = list(result.scalars().all())
-        
-        # Populate cache for next request (fire and forget)
-        if self.cache_service.is_available and messages:
-            asyncio.create_task(
-                self.cache_service.set_user_messages(conversation_id, messages)
-            )
-        
-        # Append current message if provided
-        if include_current:
-            messages.append(include_current)
-        
-        return messages
-
     async def get_conversation_history(
         self,
         db: AsyncSession,
@@ -368,7 +420,6 @@ class ChatOrchestrator:
         if self.cache_service.is_available:
             cached = await self.cache_service.get_conversation_history(user_id, limit)
             if cached is not None:
-                logger.debug("Cache hit for conversation history", user_id=user_id)
                 return cached
         
         # Cache miss - fetch from database
@@ -401,8 +452,9 @@ class ChatOrchestrator:
         # Write-through: populate cache asynchronously (don't block response)
         if self.cache_service.is_available:
             # Fire and forget - cache population shouldn't delay response
-            asyncio.create_task(
-                self.cache_service.set_conversation_history(user_id, limit, conversations)
+            _create_tracked_task(
+                self.cache_service.set_conversation_history(user_id, limit, conversations),
+                "cache:set_conversation_history",
             )
         
         return conversations
@@ -412,6 +464,9 @@ class ChatOrchestrator:
         db: AsyncSession,
         user_id: int,
         conversation_id: str,
+        *,
+        limit: int = 50,
+        offset: int = 0,
     ) -> dict[str, Any] | None:
         """Get full conversation with all messages.
         
@@ -419,14 +474,17 @@ class ChatOrchestrator:
         Write-through: populate cache on miss asynchronously.
         Cache entries include user_id for ownership verification.
         """
-        # Try cache first - verify user ownership from cached data
-        if self.cache_service.is_available:
-            cached = await self.cache_service.get_conversation_detail(conversation_id)
+        # Cache only the first page to avoid stale/mismatched pagination entries
+        use_cache = offset == 0
+        if use_cache and self.cache_service.is_available:
+            cached = await self.cache_service.get_conversation_detail(
+                conversation_id,
+                limit=limit,
+            )
             if cached is not None:
                 # Verify ownership - return None if user_id doesn't match (security check)
                 if cached.get("user_id") != user_id:
                     return None
-                logger.debug("Cache hit for conversation detail", conversation_id=conversation_id)
                 return cached
         
         # Cache miss - fetch conversation from database
@@ -442,13 +500,21 @@ class ChatOrchestrator:
         if not conv:
             return None
         
-        # Fetch messages separately (more reliable than selectinload with async)
+        # Fetch messages with pagination
         msg_result = await db.execute(
             select(Message)
             .where(Message.conversation_id == conversation_id)
             .order_by(Message.created_at.asc())
+            .offset(offset)
+            .limit(limit)
         )
         messages = msg_result.scalars().all()
+
+        # Total count for pagination metadata
+        total_result = await db.execute(
+            select(func.count(Message.id)).where(Message.conversation_id == conversation_id)
+        )
+        total_messages = int(total_result.scalar_one() or 0)
 
         detail = {
             "id": conv.id,
@@ -456,6 +522,10 @@ class ChatOrchestrator:
             "title": conv.title,
             "created_at": conv.created_at.isoformat(),
             "updated_at": conv.updated_at.isoformat(),
+            "total_messages": total_messages,
+            "limit": limit,
+            "offset": offset,
+            "has_more": offset + len(messages) < total_messages,
             "messages": [
                 {
                     "id": m.id,
@@ -470,9 +540,14 @@ class ChatOrchestrator:
         }
         
         # Write-through: populate cache asynchronously
-        if self.cache_service.is_available:
-            asyncio.create_task(
-                self.cache_service.set_conversation_detail(conversation_id, detail)
+        if use_cache and self.cache_service.is_available:
+            _create_tracked_task(
+                self.cache_service.set_conversation_detail(
+                    conversation_id,
+                    detail,
+                    limit=limit,
+                ),
+                "cache:set_conversation_detail",
             )
         
         return detail
@@ -484,12 +559,6 @@ class ChatOrchestrator:
         conversation_id: str,
     ) -> bool:
         """Delete a specific conversation."""
-        logger.info(
-            "Deleting conversation",
-            user_id=user_id,
-            conversation_id=conversation_id,
-        )
-        
         result = await db.execute(
             select(Conversation).where(
                 Conversation.id == conversation_id,
@@ -520,8 +589,6 @@ class ChatOrchestrator:
         user_id: int,
     ) -> int:
         """Delete all conversations for a user."""
-        logger.info("Deleting all conversations", user_id=user_id)
-        
         # Get conversation IDs for cache invalidation
         result = await db.execute(
             select(Conversation.id).where(Conversation.user_id == user_id)

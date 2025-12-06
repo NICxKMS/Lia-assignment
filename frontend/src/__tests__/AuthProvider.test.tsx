@@ -92,9 +92,9 @@ describe('AuthProvider', () => {
       expect(result.current.isAuthenticated).toBe(true)
     })
 
-    it('clears invalid token on mount', async () => {
+    it('clears invalid token on mount when API returns 401', async () => {
       localStorageMock.setItem('token', 'invalid-token')
-      vi.mocked(api.authApi.me).mockRejectedValue(new Error('Invalid token'))
+      vi.mocked(api.authApi.me).mockRejectedValue(new Response(null, { status: 401 }))
       
       const { result } = renderHook(() => useAuth(), { wrapper })
       
@@ -106,6 +106,29 @@ describe('AuthProvider', () => {
       expect(result.current.token).toBeNull()
       expect(localStorageMock.removeItem).toHaveBeenCalledWith('token')
       expect(localStorageMock.removeItem).toHaveBeenCalledWith('user')
+    })
+
+    it('keeps stored session on transient errors', async () => {
+      const mockUser = {
+        id: 1,
+        email: 'cached@example.com',
+        username: 'cacheduser',
+        created_at: '2024-01-01T00:00:00Z',
+      }
+      
+      localStorageMock.setItem('token', 'valid-token')
+      localStorageMock.setItem('user', JSON.stringify(mockUser))
+      vi.mocked(api.authApi.me).mockRejectedValue(new Error('Network down'))
+      
+      const { result } = renderHook(() => useAuth(), { wrapper })
+      
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false)
+      })
+      
+      expect(result.current.user).toEqual(mockUser)
+      expect(result.current.token).toBe('valid-token')
+      expect(localStorageMock.removeItem).not.toHaveBeenCalledWith('token')
     })
   })
 

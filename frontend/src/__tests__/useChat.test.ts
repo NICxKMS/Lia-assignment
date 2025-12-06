@@ -430,8 +430,8 @@ describe('useChat Hook', () => {
       
       const { result } = renderHook(() => useChat())
       
-      act(() => {
-        result.current.sendMessage('Hello', defaultOptions)
+      await act(async () => {
+        void result.current.sendMessage('Hello', defaultOptions)
       })
       
       await waitFor(() => {
@@ -486,6 +486,166 @@ describe('useChat Hook', () => {
       // Should have user message but no empty assistant message
       const assistantMessages = result.current.messages.filter(m => m.role === 'assistant')
       expect(assistantMessages.every(m => m.content !== '')).toBe(true)
+    })
+  })
+
+  describe('Thinking/Thought Events', () => {
+    it('accumulates thought events into assistant message', async () => {
+      const events = [
+        { event: 'start', data: { conversation_id: 'conv-123' } },
+        { event: 'thought', data: { content: 'Step 1: Parse the question' } },
+        { event: 'thought', data: { content: 'Step 2: Calculate result' } },
+        { event: 'chunk', data: { content: 'The answer is 42.' } },
+        { event: 'done', data: {} },
+      ]
+      
+      mockFetch.mockResolvedValue(createSSEResponse(events))
+      
+      const { result } = renderHook(() => useChat())
+      
+      await act(async () => {
+        await result.current.sendMessage('What is 6 times 7?', defaultOptions)
+      })
+      
+      await waitFor(() => {
+        expect(result.current.status).toBe('idle')
+      })
+      
+      const assistantMessage = result.current.messages.find(m => m.role === 'assistant')
+      expect(assistantMessage).toBeDefined()
+      expect(assistantMessage?.thoughts).toEqual([
+        'Step 1: Parse the question',
+        'Step 2: Calculate result',
+      ])
+      expect(assistantMessage?.content).toBe('The answer is 42.')
+    })
+
+    it('handles no thought events gracefully', async () => {
+      const events = [
+        { event: 'start', data: { conversation_id: 'conv-123' } },
+        { event: 'chunk', data: { content: 'Direct response' } },
+        { event: 'done', data: {} },
+      ]
+      
+      mockFetch.mockResolvedValue(createSSEResponse(events))
+      
+      const { result } = renderHook(() => useChat())
+      
+      await act(async () => {
+        await result.current.sendMessage('Hello', defaultOptions)
+      })
+      
+      await waitFor(() => {
+        expect(result.current.status).toBe('idle')
+      })
+      
+      const assistantMessage = result.current.messages.find(m => m.role === 'assistant')
+      expect(assistantMessage?.content).toBe('Direct response')
+      // thoughts should be undefined when empty
+      expect(assistantMessage?.thoughts).toBeUndefined()
+    })
+
+    it('updates thoughts array during streaming', async () => {
+      const events = [
+        { event: 'start', data: { conversation_id: 'conv-123' } },
+        { event: 'thought', data: { content: 'First thought' } },
+        { event: 'thought', data: { content: 'Second thought' } },
+        { event: 'chunk', data: { content: 'Response' } },
+        { event: 'done', data: {} },
+      ]
+      
+      let eventIndex = 0
+      const encoder = new TextEncoder()
+      
+      mockFetch.mockResolvedValue({
+        ok: true,
+        body: {
+          getReader: () => ({
+            read: vi.fn().mockImplementation(() => {
+              if (eventIndex < events.length) {
+                const event = events[eventIndex]
+                eventIndex++
+                const sseString = `event: ${event.event}\ndata: ${JSON.stringify(event.data)}\n\n`
+                return Promise.resolve({
+                  done: false,
+                  value: encoder.encode(sseString),
+                })
+              }
+              return Promise.resolve({ done: true, value: undefined })
+            }),
+            releaseLock: vi.fn(),
+          }),
+        },
+      })
+      
+      const { result } = renderHook(() => useChat())
+      
+      await act(async () => {
+        await result.current.sendMessage('Test', defaultOptions)
+      })
+      
+      await waitFor(() => {
+        expect(result.current.status).toBe('idle')
+      })
+      
+      // Final state should have both thoughts
+      const assistantMessage = result.current.messages.find(m => m.role === 'assistant')
+      expect(assistantMessage?.thoughts).toHaveLength(2)
+    })
+
+    it('preserves thoughts in final message', async () => {
+      const events = [
+        { event: 'start', data: { conversation_id: 'conv-123' } },
+        { event: 'thought', data: { content: 'Analyzing...' } },
+        { event: 'chunk', data: { content: 'Result' } },
+        { event: 'sentiment', data: { message: { score: 0.8, label: 'Positive' }, cumulative: null } },
+        { event: 'done', data: {} },
+      ]
+      
+      mockFetch.mockResolvedValue(createSSEResponse(events))
+      
+      const onFinish = vi.fn()
+      const { result } = renderHook(() => useChat({ onFinish }))
+      
+      await act(async () => {
+        await result.current.sendMessage('Test', defaultOptions)
+      })
+      
+      await waitFor(() => {
+        expect(result.current.status).toBe('idle')
+      })
+      
+      // Final message in state should have thoughts
+      const finalMessage = result.current.messages.find(m => m.role === 'assistant')
+      expect(finalMessage?.thoughts).toEqual(['Analyzing...'])
+      expect(finalMessage?.isStreaming).toBe(false)
+    })
+
+    it('handles interleaved thought and chunk events', async () => {
+      const events = [
+        { event: 'start', data: { conversation_id: 'conv-123' } },
+        { event: 'thought', data: { content: 'Thinking part 1' } },
+        { event: 'chunk', data: { content: 'Response ' } },
+        { event: 'thought', data: { content: 'Thinking part 2' } },
+        { event: 'chunk', data: { content: 'continues.' } },
+        { event: 'done', data: {} },
+      ]
+      
+      mockFetch.mockResolvedValue(createSSEResponse(events))
+      
+      const { result } = renderHook(() => useChat())
+      
+      await act(async () => {
+        await result.current.sendMessage('Test', defaultOptions)
+      })
+      
+      await waitFor(() => {
+        expect(result.current.status).toBe('idle')
+      })
+      
+      const assistantMessage = result.current.messages.find(m => m.role === 'assistant')
+      expect(assistantMessage?.thoughts).toEqual(['Thinking part 1', 'Thinking part 2'])
+      expect(assistantMessage?.content).toBe('Response continues.')
     })
   })
 })

@@ -228,7 +228,7 @@ The development server runs on **http://localhost:5173** with:
 ### Running Tests
 
 ```bash
-# Run all tests
+# Run all tests (300 tests, ~6s)
 pnpm test
 
 # Run with UI
@@ -244,23 +244,31 @@ pnpm test -- src/__tests__/ChatInput.test.tsx
 pnpm test -- --watch
 ```
 
+### Test Stats
+
+- **300 tests** across 14 test files
+- **~6 seconds** total runtime
+- Optimized with `userEvent.setup({ delay: null })`
+- Fast form filling with `fillInput()` helper
+
 ### Test Structure
 
-| File | Coverage |
-|------|----------|
-| `AuthPage.test.tsx` | Login/Register forms |
-| `AuthProvider.test.tsx` | Auth context behavior |
-| `ChatInput.test.tsx` | Message input component |
-| `ChatInspector.test.tsx` | Sentiment panel |
-| `ChatSidebar.test.tsx` | Conversation list |
-| `MessageList.test.tsx` | Message display |
-| `MarkdownMessage.test.tsx` | Markdown rendering |
-| `ModelSelector.test.tsx` | Model dropdown |
-| `UIComponents.test.tsx` | UI primitives |
-| `useChat.test.ts` | Chat hook logic |
-| `api.test.ts` | API client |
-| `utils.test.ts` | Utility functions |
-| `Integration.test.tsx` | Full flow tests |
+| File | Tests | Coverage |
+|------|-------|----------|
+| `AuthPage.test.tsx` | 24 | Login/Register forms |
+| `AuthProvider.test.tsx` | 11 | Auth context behavior |
+| `ChatInput.test.tsx` | 29 | Message input component |
+| `ChatInspector.test.tsx` | 22 | Sentiment panel |
+| `ChatSidebar.test.tsx` | 29 | Conversation list |
+| `MessageList.test.tsx` | 22 | Message display |
+| `MarkdownMessage.test.tsx` | 27 | Markdown rendering |
+| `ModelSelector.test.tsx` | 21 | Model dropdown |
+| `UIComponents.test.tsx` | 51 | UI primitives |
+| `useChat.test.ts` | 19 | Chat hook logic |
+| `api.test.ts` | 14 | API client |
+| `utils.test.ts` | 18 | Utility functions |
+| `Integration.test.tsx` | 9 | Full flow tests |
+| `ChatInterface.test.tsx` | 4 | Main container |
 
 ### Test Utilities
 

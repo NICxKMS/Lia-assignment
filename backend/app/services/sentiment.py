@@ -4,12 +4,14 @@ Supports three sentiment analysis approaches:
 1. nlp_api - Google Cloud Natural Language API
 2. llm_separate - Dedicated LLM call for sentiment
 3. structured - Combined response + sentiment from LLM
+
+Also supports incremental cumulative sentiment with rolling summary.
 """
 
 import asyncio
 import json
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from google.genai import types as genai_types
@@ -30,17 +32,22 @@ class SentimentResult:
     label: str  # 'Positive', 'Negative', 'Neutral'
     source: str  # Method used for analysis
     emotion: str | None = None
+    summary: str | None = None  # Cumulative sentiment summary for incremental analysis
     details: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
-        return {
+        result = {
             "score": round(self.score, 4),
             "label": self.label,
             "emotion": self.emotion,
             "source": self.source,
-            "details": self.details,
         }
+        if self.summary:
+            result["summary"] = self.summary
+        if self.details:
+            result["details"] = self.details
+        return result
 
     @staticmethod
     def score_to_label(score: float) -> str:
@@ -62,12 +69,48 @@ class SentimentResult:
         )
 
 
+@dataclass
+class CumulativeState:
+    """State for incremental cumulative sentiment tracking."""
+    summary: str = ""
+    score: float = 0.0
+    count: int = 0
+    label: str = "Neutral"
+    
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "summary": self.summary,
+            "score": round(self.score, 4),
+            "count": self.count,
+            "label": self.label,
+        }
+    
+    @staticmethod
+    def from_dict(data: dict[str, Any] | None) -> "CumulativeState":
+        if not data:
+            return CumulativeState()
+        return CumulativeState(
+            summary=data.get("summary", ""),
+            score=data.get("score", 0.0),
+            count=data.get("count", 0),
+            label=data.get("label", "Neutral"),
+        )
+
+
 class SentimentAnalysisSchema(BaseModel):
     """Schema for LLM sentiment analysis response."""
     
     score: float
     label: str
     emotion: str
+
+
+class IncrementalSentimentSchema(BaseModel):
+    """Schema for incremental cumulative sentiment update."""
+    
+    score: float
+    label: str
+    summary: str  # Updated summary incorporating new message
 
 
 class SentimentStrategy(ABC):
@@ -79,6 +122,192 @@ class SentimentStrategy(ABC):
     async def analyze(self, text: str) -> SentimentResult:
         """Analyze the sentiment of the given text."""
         ...
+
+
+class IncrementalSentimentAnalyzer:
+    """Analyzer for incremental cumulative sentiment with rolling summary.
+    
+    Instead of re-analyzing all messages, this maintains a running summary
+    that gets updated with each new message - O(1) per message.
+    """
+    
+    INCREMENTAL_PROMPT = '''You are a sentiment analyst tracking conversation sentiment over time.
+
+Given the previous conversation summary and a new user message, produce:
+1. An updated summary (max 100 chars) capturing the overall emotional trajectory
+2. A sentiment score from -1.0 (very negative) to 1.0 (very positive)
+3. A label: "Positive", "Negative", or "Neutral"
+
+Previous summary: {previous_summary}
+Previous score: {previous_score}
+Message count: {message_count}
+
+New message to incorporate:
+{new_message}
+
+Respond with ONLY valid JSON:
+{{"score": 0.5, "label": "Positive", "summary": "Brief emotional summary"}}'''
+
+    def __init__(self, llm_service: LLMService | None = None) -> None:
+        self.llm_service = llm_service or get_llm_service()
+    
+    async def update(
+        self,
+        new_message: str,
+        current_state: CumulativeState,
+        message_sentiment: SentimentResult | None,
+        provider: str = "gemini",
+        model: str = "gemini-2.5-flash-lite",
+    ) -> tuple[SentimentResult, CumulativeState]:
+        """Update cumulative sentiment with a new message.
+        
+        Returns updated SentimentResult and new CumulativeState.
+        """
+        # Only Gemini supports the incremental JSON API used below.
+        # For other providers (e.g., OpenAI), fall back to local aggregation.
+        if provider != "gemini":
+            # If we have the per-message sentiment, use weighted average.
+            if message_sentiment:
+                old_weight = current_state.count
+                new_weight = 1
+                total = old_weight + new_weight
+                new_score = (current_state.score * old_weight + message_sentiment.score * new_weight) / total
+                new_label = SentimentResult.score_to_label(new_score)
+                
+                new_state = CumulativeState(
+                    summary=current_state.summary,  # Keep old summary
+                    score=new_score,
+                    count=current_state.count + 1,
+                    label=new_label,
+                )
+                result = SentimentResult(
+                    score=new_score,
+                    label=new_label,
+                    summary=current_state.summary,
+                    source="incremental_fallback",
+                )
+                return result, new_state
+            
+            # No per-message sentiment: just advance the count to keep state in sync.
+            advanced_state = CumulativeState(
+                summary=current_state.summary,
+                score=current_state.score,
+                count=current_state.count + 1,
+                label=current_state.label,
+            )
+            return SentimentResult(
+                score=current_state.score,
+                label=current_state.label,
+                summary=current_state.summary,
+                source="incremental_unchanged",
+            ), advanced_state
+
+        # First message - use the message sentiment directly
+        if current_state.count == 0 and message_sentiment:
+            new_state = CumulativeState(
+                summary=f"User is {message_sentiment.emotion or message_sentiment.label.lower()}",
+                score=message_sentiment.score,
+                count=1,
+                label=message_sentiment.label,
+            )
+            result = SentimentResult(
+                score=message_sentiment.score,
+                label=message_sentiment.label,
+                emotion=message_sentiment.emotion,
+                summary=new_state.summary,
+                source="incremental",
+            )
+            return result, new_state
+        
+        # Subsequent messages - use LLM to update summary
+        prompt = self.INCREMENTAL_PROMPT.format(
+            previous_summary=current_state.summary or "No previous context",
+            previous_score=current_state.score,
+            message_count=current_state.count,
+            new_message=new_message[:1000],  # Limit message length
+        )
+        
+        try:
+            adapter = self.llm_service.get_adapter(provider)
+            contents = [
+                genai_types.Content(
+                    role="user",
+                    parts=[genai_types.Part.from_text(text=prompt)],
+                )
+            ]
+            config = genai_types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=IncrementalSentimentSchema,
+                temperature=0.1,
+                thinking_config=genai_types.ThinkingConfig(
+                    thinking_budget=-1,  # Dynamic thinking budget
+                ),
+            )
+            
+            response = await adapter.client.aio.models.generate_content(  # type: ignore[attr-defined]
+                model=model,
+                contents=contents,
+                config=config,
+            )
+            
+            if response.text:
+                data = json.loads(response.text)
+                score = max(-1.0, min(1.0, float(data.get("score", 0.0))))
+                label = data.get("label", SentimentResult.score_to_label(score))
+                summary = data.get("summary", "")[:100]  # Cap summary length
+                
+                new_state = CumulativeState(
+                    summary=summary,
+                    score=score,
+                    count=current_state.count + 1,
+                    label=label,
+                )
+                result = SentimentResult(
+                    score=score,
+                    label=label,
+                    summary=summary,
+                    source="incremental",
+                    details={"provider": provider, "model": model},
+                )
+                return result, new_state
+        except Exception as e:
+            logger.debug("Incremental sentiment update failed, using weighted average", error=str(e))
+        
+        # Fallback: weighted average if LLM fails
+        if message_sentiment:
+            old_weight = current_state.count
+            new_weight = 1
+            total = old_weight + new_weight
+            new_score = (current_state.score * old_weight + message_sentiment.score * new_weight) / total
+            new_label = SentimentResult.score_to_label(new_score)
+            
+            new_state = CumulativeState(
+                summary=current_state.summary,  # Keep old summary
+                score=new_score,
+                count=current_state.count + 1,
+                label=new_label,
+            )
+            result = SentimentResult(
+                score=new_score,
+                label=new_label,
+                summary=current_state.summary,
+                source="incremental_fallback",
+            )
+            return result, new_state
+        
+        # No sentiment available - return current state
+        unchanged_state = CumulativeState(
+            summary=current_state.summary,
+            score=current_state.score,
+            count=current_state.count + 1,
+            label=current_state.label,
+        )
+        return SentimentResult(
+            score=current_state.score,
+            label=current_state.label,
+            summary=current_state.summary,
+            source="incremental_unchanged",
+        ), unchanged_state
 
 
 class GoogleCloudNLPStrategy(SentimentStrategy):
@@ -196,7 +425,7 @@ Where:
         self,
         llm_service: LLMService | None = None,
         provider: str = "gemini",
-        model: str = "gemini-2.0-flash-lite",
+        model: str = "gemini-2.5-flash",
     ) -> None:
         self.llm_service = llm_service or get_llm_service()
         self.provider = provider
@@ -219,10 +448,13 @@ Where:
                     response_mime_type="application/json",
                     response_schema=SentimentAnalysisSchema,
                     temperature=0.1,
+                    thinking_config=genai_types.ThinkingConfig(
+                        thinking_budget=-1,  # Dynamic thinking budget
+                    ),
                 )
                 
                 # Use the adapter's existing client
-                response = await adapter.client.aio.models.generate_content(
+                response = await adapter.client.aio.models.generate_content(  # type: ignore[attr-defined]
                     model=self.model,
                     contents=contents,
                     config=config,
@@ -313,6 +545,7 @@ class SentimentService:
     
     Uses singleton pattern for provider-agnostic strategies (nlp_api, structured)
     and caches provider-specific strategies (llm_separate) by provider:model.
+    Also provides incremental cumulative sentiment analysis.
     """
 
     AVAILABLE_METHODS = ["nlp_api", "llm_separate", "structured"]
@@ -324,12 +557,13 @@ class SentimentService:
         # Create shared singleton instances for provider-agnostic strategies
         self._cloud_nlp = GoogleCloudNLPStrategy()
         self._structured = StructuredOutputStrategy(self._cloud_nlp)
+        self._incremental = IncrementalSentimentAnalyzer(self.llm_service)
 
     def get_strategy(
         self,
         method: str,
         provider: str = "gemini",
-        model: str = "gemini-2.0-flash-lite",
+        model: str = "gemini-2.5-flash-lite",
     ) -> SentimentStrategy:
         """Get or create a sentiment strategy instance.
         
@@ -360,11 +594,27 @@ class SentimentService:
         text: str,
         method: str = "llm_separate",
         provider: str = "gemini",
-        model: str = "gemini-2.0-flash-lite",
+        model: str = "gemini-2.5-flash-lite",
     ) -> SentimentResult:
         """Analyze sentiment using the specified method."""
         strategy = self.get_strategy(method, provider, model)
         return await strategy.analyze(text)
+
+    async def update_cumulative(
+        self,
+        new_message: str,
+        current_state: CumulativeState,
+        message_sentiment: SentimentResult | None,
+        provider: str = "gemini",
+        model: str = "gemini-2.5-flash-lite",
+    ) -> tuple[SentimentResult, CumulativeState]:
+        """Update cumulative sentiment incrementally with a new message.
+        
+        Returns (SentimentResult for cumulative, new CumulativeState).
+        """
+        return await self._incremental.update(
+            new_message, current_state, message_sentiment, provider, model
+        )
 
     def get_available_methods(self) -> list[str]:
         """Get list of available sentiment analysis methods."""

@@ -1,7 +1,6 @@
 @import "tailwindcss";
 
 @plugin "tailwindcss-animate";
-@import "tw-animate-css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -76,6 +75,17 @@
 @layer base {
   html {
     font-family: var(--font-sans);
+  }
+
+  /* Text selection styling */
+  *::selection {
+    background-color: #3b82f6 !important;
+    color: #ffffff !important;
+  }
+
+  *::-moz-selection {
+    background-color: #3b82f6 !important;
+    color: #ffffff !important;
   }
 
   /* Modern Scrollbar */

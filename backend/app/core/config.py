@@ -48,7 +48,7 @@ class Settings(BaseSettings):
     gemini_api_key: str = Field(default="", description="Google Gemini API Key")
     openai_api_key: str = Field(default="", description="OpenAI API Key")
     default_llm_provider: Literal["gemini", "openai"] = "gemini"
-    default_llm_model: str = "gemini-2.0-flash"
+    default_llm_model: str = "gemini-2.5-flash"
 
     # ========== Google Cloud (Optional) ==========
     google_cloud_project_id: str = Field(default="", description="GCP Project ID for NLP API")
@@ -68,6 +68,10 @@ class Settings(BaseSettings):
     # ========== Application ==========
     app_name: str = "Lia Chatbot"
     app_version: str = "2.0.0"
+    environment: Literal["development", "staging", "production"] = Field(
+        default="development",
+        description="Application environment",
+    )
     debug: bool = Field(default=False)
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
 

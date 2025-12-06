@@ -10,13 +10,16 @@ import json
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Awaitable, Callable, TypeVar
 
+import httpx
 from google import genai
+from google.api_core.exceptions import InvalidArgument, ResourceExhausted
 from google.genai import types as genai_types
-from openai import AsyncOpenAI
+from openai import APIError, APITimeoutError, AsyncOpenAI, RateLimitError
 from openai.types.chat import ChatCompletionMessageParam
 from pydantic import BaseModel
+from tenacity import AsyncRetrying, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from app.core.config import get_settings
 from app.core.exceptions import LLMProviderError
@@ -24,6 +27,29 @@ from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
+T = TypeVar("T")
+
+
+async def _run_with_retry(func: Callable[[], Awaitable[T]]) -> T:
+    """Apply exponential backoff retry for transient provider errors."""
+    retryable = (
+        httpx.TimeoutException,
+        httpx.HTTPStatusError,
+        APIError,
+        APITimeoutError,
+        RateLimitError,
+        ResourceExhausted,
+    )
+    async for attempt in AsyncRetrying(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=8),
+        retry=retry_if_exception_type(retryable),
+        reraise=True,
+    ):
+        with attempt:
+            return await func()
+    # This should never be reached due to reraise=True
+    raise RuntimeError("Retry loop completed without success")
 
 @dataclass
 class StreamChunk:
@@ -35,6 +61,7 @@ class StreamChunk:
     provider: str = ""
     finish_reason: str | None = None
     usage: dict[str, int] | None = None
+    is_thought: bool = False  # True if this chunk is from model thinking
 
 
 @dataclass
@@ -90,6 +117,8 @@ class LLMAdapter(ABC):
         messages: list[dict[str, str]],
         model: str,
         system_prompt: str | None = None,
+        temperature: float = 0.7,
+        max_tokens: int = 2048,
     ) -> AsyncIterator[StructuredStreamChunk]:
         """Generate a structured streaming response with sentiment."""
         ...
@@ -175,10 +204,9 @@ class GeminiAdapter(LLMAdapter):
     provider_name = "gemini"
     
     MODELS = [
-        ModelInfo("gemini-2.0-flash", "Gemini 2.0 Flash", "gemini", 1000000, True, True),
-        ModelInfo("gemini-2.0-flash-lite", "Gemini 2.0 Flash Lite", "gemini", 1000000, True, True),
-        ModelInfo("gemini-1.5-pro", "Gemini 1.5 Pro", "gemini", 2000000, True, True),
-        ModelInfo("gemini-1.5-flash", "Gemini 1.5 Flash", "gemini", 1000000, True, True),
+        ModelInfo("gemini-2.5-flash", "Gemini 2.5 Flash", "gemini", 1000000, True, True),
+        ModelInfo("gemini-2.5-flash-lite", "Gemini 2.5 Flash Lite", "gemini", 1000000, True, True),
+        ModelInfo("gemini-2.5-pro", "Gemini 2.5 Pro", "gemini", 2000000, True, True),
     ]
 
     def __init__(self, api_key: str | None = None):
@@ -222,20 +250,48 @@ class GeminiAdapter(LLMAdapter):
                 temperature=temperature,
                 max_output_tokens=max_tokens,
                 system_instruction=system_prompt,
+                thinking_config=genai_types.ThinkingConfig(
+                    thinking_budget=-1,  # Dynamic thinking budget
+                    include_thoughts=True,  # Include thoughts in response
+                ),
             )
 
-            stream = await self.client.aio.models.generate_content_stream(
+            stream = await _run_with_retry(
+                lambda: self.client.aio.models.generate_content_stream(
                 model=model,
                 contents=self._to_contents(messages),
                 config=config,
+                )
             )
 
             async for chunk in stream:
-                if chunk.text:
+                # Handle chunks with parts (thoughts and text)
+                if chunk.candidates and chunk.candidates[0].content and chunk.candidates[0].content.parts:
+                    for part in chunk.candidates[0].content.parts:
+                        if hasattr(part, 'thought') and part.thought:
+                            # This is a thought part
+                            if hasattr(part, 'text') and part.text:
+                                yield StreamChunk(
+                                    content=part.text,
+                                    model=model,
+                                    provider=self.provider_name,
+                                    is_thought=True,
+                                )
+                        elif hasattr(part, 'text') and part.text:
+                            # Regular text part
+                            yield StreamChunk(
+                                content=part.text,
+                                model=model,
+                                provider=self.provider_name,
+                                is_thought=False,
+                            )
+                elif chunk.text:
+                    # Fallback for simple text chunks
                     yield StreamChunk(
                         content=chunk.text,
                         model=model,
                         provider=self.provider_name,
+                        is_thought=False,
                     )
 
             yield StreamChunk(
@@ -245,6 +301,12 @@ class GeminiAdapter(LLMAdapter):
                 provider=self.provider_name,
                 finish_reason="stop",
             )
+        except ResourceExhausted as e:
+            logger.error("Gemini rate limited", error=str(e), model=model)
+            raise LLMProviderError("gemini", "Rate limit exceeded") from e
+        except InvalidArgument as e:
+            logger.error("Gemini invalid request", error=str(e), model=model)
+            raise LLMProviderError("gemini", f"Invalid request: {e}") from e
         except Exception as e:
             logger.error("Gemini streaming error", error=str(e), model=model)
             raise LLMProviderError("gemini", str(e))
@@ -254,6 +316,8 @@ class GeminiAdapter(LLMAdapter):
         messages: list[dict[str, str]],
         model: str,
         system_prompt: str | None = None,
+        temperature: float = 0.7,
+        max_tokens: int = 2048,
     ) -> AsyncIterator[StructuredStreamChunk]:
         if not self.api_key:
             raise LLMProviderError("gemini", "API key not configured")
@@ -265,17 +329,24 @@ class GeminiAdapter(LLMAdapter):
             )
 
             config = genai_types.GenerateContentConfig(
+                temperature=temperature,
+                max_output_tokens=max_tokens,
                 system_instruction=_build_sentiment_system_prompt(
                     last_user_message, system_prompt
                 ),
                 response_mime_type="application/json",
                 response_schema=ChatWithSentiment,
+                thinking_config=genai_types.ThinkingConfig(
+                    thinking_budget=-1,  # Dynamic thinking budget
+                ),
             )
 
-            stream = await self.client.aio.models.generate_content_stream(
+            stream = await _run_with_retry(
+                lambda: self.client.aio.models.generate_content_stream(
                 model=model,
                 contents=self._to_contents(messages),
                 config=config,
+                )
             )
 
             full_json = ""
@@ -322,6 +393,8 @@ class GeminiAdapter(LLMAdapter):
                 provider=self.provider_name,
                 finish_reason="stop",
             )
+        except (ResourceExhausted, InvalidArgument) as e:
+            raise LLMProviderError("gemini", str(e)) from e
         except LLMProviderError:
             raise
         except Exception as e:
@@ -337,8 +410,7 @@ class OpenAIAdapter(LLMAdapter):
     MODELS = [
         ModelInfo("gpt-4o", "GPT-4o", "openai", 128000, True, True),
         ModelInfo("gpt-4o-mini", "GPT-4o Mini", "openai", 128000, True, True),
-        ModelInfo("gpt-4-turbo", "GPT-4 Turbo", "openai", 128000, True, True),
-        ModelInfo("gpt-3.5-turbo", "GPT-3.5 Turbo", "openai", 16385, True, True),
+        ModelInfo("gpt-4.1", "GPT 4.1", "openai", 128000, True, True),
     ]
 
     def __init__(self, api_key: str | None = None):
@@ -384,12 +456,14 @@ class OpenAIAdapter(LLMAdapter):
             raise LLMProviderError("openai", "API key not configured")
 
         try:
-            stream = await self.client.chat.completions.create(
+            stream = await _run_with_retry(
+                lambda: self.client.chat.completions.create(
                 model=model,
                 messages=self._to_messages(messages, system_prompt),
                 temperature=temperature,
                 max_tokens=max_tokens,
                 stream=True,
+                )
             )
 
             async for chunk in stream:
@@ -407,6 +481,8 @@ class OpenAIAdapter(LLMAdapter):
                 provider=self.provider_name,
                 finish_reason="stop",
             )
+        except (RateLimitError, APITimeoutError, APIError) as e:
+            raise LLMProviderError("openai", str(e)) from e
         except Exception as e:
             logger.error("OpenAI streaming error", error=str(e), model=model)
             raise LLMProviderError("openai", str(e))
@@ -416,6 +492,8 @@ class OpenAIAdapter(LLMAdapter):
         messages: list[dict[str, str]],
         model: str,
         system_prompt: str | None = None,
+        temperature: float = 0.7,
+        max_tokens: int = 2048,
     ) -> AsyncIterator[StructuredStreamChunk]:
         if not self.api_key:
             raise LLMProviderError("openai", "API key not configured")
@@ -426,15 +504,18 @@ class OpenAIAdapter(LLMAdapter):
                 "",
             )
 
-            stream = await self.client.chat.completions.create(
+            stream = await _run_with_retry(
+                lambda: self.client.chat.completions.create(
                 model=model,
                 messages=self._to_messages(
                     messages,
                     _build_sentiment_system_prompt(last_user_message, system_prompt),
                 ),
                 response_format={"type": "json_object"},
-                temperature=0.7,
+                temperature=temperature,
+                max_tokens=max_tokens,
                 stream=True,
+                )
             )
 
             full_json = ""

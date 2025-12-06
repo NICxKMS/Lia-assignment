@@ -30,7 +30,7 @@ class TestSentimentResult:
             label="Positive",
             source="llm_separate",
             emotion="happy",
-            details={"provider": "gemini", "model": "gemini-2.0-flash"},
+            details={"provider": "gemini", "model": "gemini-2.5-flash"},
         )
         
         data = result.to_dict()
@@ -55,7 +55,9 @@ class TestSentimentResult:
         assert data["label"] == "Neutral"
         assert data["source"] == "test"
         assert data["emotion"] is None
-        assert data["details"] is None
+        # details and summary are omitted when None (optimization)
+        assert "details" not in data
+        assert "summary" not in data
 
     def test_score_rounding(self):
         """Test that score is rounded to 4 decimal places."""
@@ -257,7 +259,7 @@ class TestSentimentServiceAnalyze:
             
             result = await service.analyze("Test text", "llm_separate")
             
-            mock_get.assert_called_once_with("llm_separate", "gemini", "gemini-2.0-flash-lite")
+            mock_get.assert_called_once_with("llm_separate", "gemini", "gemini-2.5-flash-lite")
             mock_strategy.analyze.assert_called_once_with("Test text")
             assert result == mock_result
 

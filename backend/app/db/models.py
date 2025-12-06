@@ -73,6 +73,8 @@ class Conversation(Base):
         # Note: No single-column index - composite indexes (user_id, created_at) and (user_id, updated_at) cover queries
     )
     title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Incremental sentiment state: {summary, score, count, label} for O(1) cumulative sentiment
+    sentiment_state: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utc_now, nullable=False
     )

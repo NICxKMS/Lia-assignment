@@ -12,6 +12,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     const validateAuth = async () => {
       const storedToken = localStorage.getItem('token')
+      const storedUser = localStorage.getItem('user')
       
       if (storedToken) {
         try {
@@ -20,10 +21,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setToken(storedToken)
           setUser(userData)
           localStorage.setItem('user', JSON.stringify(userData))
-        } catch {
-          // Token is invalid, clear it
-          localStorage.removeItem('token')
-          localStorage.removeItem('user')
+        } catch (error) {
+          // Only clear credentials on explicit 401 Unauthorized
+          const is401 = error instanceof Response && error.status === 401
+          
+          if (is401) {
+            // Token is invalid, clear it
+            localStorage.removeItem('token')
+            localStorage.removeItem('user')
+          } else if (storedUser) {
+            // Transient error - keep cached session
+            try {
+              const cachedUser = JSON.parse(storedUser) as User
+              setToken(storedToken)
+              setUser(cachedUser)
+            } catch {
+              // Invalid cached user, clear everything
+              localStorage.removeItem('token')
+              localStorage.removeItem('user')
+            }
+          }
         }
       }
       setIsLoading(false)

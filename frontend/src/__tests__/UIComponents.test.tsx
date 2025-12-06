@@ -48,7 +48,7 @@ describe('Button Component', () => {
     it('applies ghost variant', () => {
       render(<Button variant="ghost">Ghost</Button>)
       const button = screen.getByRole('button')
-      expect(button.className).toContain('hover:bg-accent')
+      expect(button.className).toContain('hover:bg-muted')
     })
 
     it('applies link variant', () => {
@@ -86,7 +86,7 @@ describe('Button Component', () => {
 
   describe('Interactions', () => {
     it('calls onClick when clicked', async () => {
-      const user = userEvent.setup()
+      const user = userEvent.setup({ delay: null })
       const onClick = vi.fn()
       render(<Button onClick={onClick}>Click</Button>)
       
@@ -95,7 +95,7 @@ describe('Button Component', () => {
     })
 
     it('does not call onClick when disabled', async () => {
-      const user = userEvent.setup()
+      const user = userEvent.setup({ delay: null })
       const onClick = vi.fn()
       render(<Button onClick={onClick} disabled>Disabled</Button>)
       
@@ -185,7 +185,7 @@ describe('Input Component', () => {
     })
 
     it('calls onChange', async () => {
-      const user = userEvent.setup()
+      const user = userEvent.setup({ delay: null })
       const onChange = vi.fn()
       render(<Input onChange={onChange} />)
       

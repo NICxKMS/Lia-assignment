@@ -5,12 +5,20 @@ import React from 'react'
 import ChatSidebar from '../components/chat/ChatSidebar'
 import type { ConversationSummary, User } from '../lib/api'
 
+// Motion props to filter out
+const motionProps = ['whileHover', 'whileTap', 'whileFocus', 'whileDrag', 'whileInView', 
+  'initial', 'animate', 'exit', 'variants', 'transition', 'layout', 'layoutId', 'drag'] as const
+
 // Mock framer-motion
 vi.mock('framer-motion', () => ({
   motion: {
-    div: React.forwardRef(({ children, onClick, onKeyDown, role, tabIndex, className, ...props }: React.PropsWithChildren<React.HTMLAttributes<HTMLDivElement>>, ref: React.ForwardedRef<HTMLDivElement>) => (
-      <div ref={ref} onClick={onClick} onKeyDown={onKeyDown} role={role} tabIndex={tabIndex} className={className} {...props}>{children}</div>
-    )),
+    div: React.forwardRef(({ children, ...props }: React.PropsWithChildren<Record<string, unknown>>, ref: React.ForwardedRef<HTMLDivElement>) => {
+      // Filter out framer-motion specific props
+      const filtered = Object.fromEntries(
+        Object.entries(props).filter(([key]) => !motionProps.includes(key as typeof motionProps[number]))
+      ) as React.HTMLAttributes<HTMLDivElement>
+      return <div ref={ref} {...filtered}>{children}</div>
+    }),
   },
   AnimatePresence: ({ children }: React.PropsWithChildren) => <>{children}</>,
 }))
@@ -33,8 +41,8 @@ const createMockConversation = (
     id,
     title,
     created_at: date.toISOString(),
+    updated_at: date.toISOString(),
     message_count: 5,
-    last_message: 'Last message content',
   }
 }
 
@@ -178,7 +186,7 @@ describe('ChatSidebar', () => {
 
   describe('Interactions', () => {
     it('calls onSelectConversation when clicking a conversation', async () => {
-      const user = userEvent.setup()
+      const user = userEvent.setup({ delay: null })
       const onSelectConversation = vi.fn()
       const history = [createMockConversation('1', 'My Chat', 0)]
       
@@ -220,7 +228,7 @@ describe('ChatSidebar', () => {
     })
 
     it('calls onNewChat when clicking new chat button', async () => {
-      const user = userEvent.setup()
+      const user = userEvent.setup({ delay: null })
       const onNewChat = vi.fn()
       
       render(<ChatSidebar {...defaultProps} onNewChat={onNewChat} />)
@@ -232,7 +240,7 @@ describe('ChatSidebar', () => {
     })
 
     it('calls onDeleteConversation when clicking delete button', async () => {
-      const user = userEvent.setup()
+      const user = userEvent.setup({ delay: null })
       const onDeleteConversation = vi.fn()
       const history = [createMockConversation('1', 'My Chat', 0)]
       
@@ -246,7 +254,7 @@ describe('ChatSidebar', () => {
     })
 
     it('stops propagation when clicking delete button', async () => {
-      const user = userEvent.setup()
+      const user = userEvent.setup({ delay: null })
       const onSelectConversation = vi.fn()
       const onDeleteConversation = vi.fn()
       const history = [createMockConversation('1', 'My Chat', 0)]
@@ -271,7 +279,7 @@ describe('ChatSidebar', () => {
     })
 
     it('calls onLogout when clicking logout button', async () => {
-      const user = userEvent.setup()
+      const user = userEvent.setup({ delay: null })
       const onLogout = vi.fn()
       
       render(<ChatSidebar {...defaultProps} onLogout={onLogout} />)
@@ -311,7 +319,7 @@ describe('ChatSidebar', () => {
     })
 
     it('calls onDeleteAll when clicking delete all button', async () => {
-      const user = userEvent.setup()
+      const user = userEvent.setup({ delay: null })
       const onDeleteAll = vi.fn()
       const history = [createMockConversation('1', 'My Chat', 0)]
       

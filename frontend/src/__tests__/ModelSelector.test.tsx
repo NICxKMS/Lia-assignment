@@ -118,7 +118,7 @@ describe('ModelDropdown', () => {
 
   describe('Dropdown Menu', () => {
     it('opens dropdown on click', async () => {
-      const user = userEvent.setup()
+      const user = userEvent.setup({ delay: null })
       render(<ModelDropdown models={testModels} />)
       
       await user.click(screen.getByRole('combobox'))
@@ -130,7 +130,7 @@ describe('ModelDropdown', () => {
     })
 
     it('calls onValueChange when selecting', async () => {
-      const user = userEvent.setup()
+      const user = userEvent.setup({ delay: null })
       const onValueChange = vi.fn()
       render(<ModelDropdown models={testModels} onValueChange={onValueChange} />)
       
@@ -175,7 +175,7 @@ describe('ModelBadgeSelector', () => {
 
   describe('Dropdown', () => {
     it('opens dropdown on click', async () => {
-      const user = userEvent.setup()
+      const user = userEvent.setup({ delay: null })
       render(<ModelBadgeSelector models={testModels} />)
       
       const button = screen.getByRole('button')
@@ -187,7 +187,7 @@ describe('ModelBadgeSelector', () => {
     })
 
     it('calls onValueChange when selecting', async () => {
-      const user = userEvent.setup()
+      const user = userEvent.setup({ delay: null })
       const onValueChange = vi.fn()
       render(<ModelBadgeSelector models={testModels} onValueChange={onValueChange} />)
       
@@ -230,7 +230,7 @@ describe('model-data', () => {
       
       expect(modelIds).toContain('gemini-2.5-flash')
       expect(modelIds).toContain('gpt-4o')
-      expect(modelIds).toContain('gpt-4')
+      expect(modelIds).toContain('gpt-4.1')
     })
 
     it('has valid capabilities', () => {

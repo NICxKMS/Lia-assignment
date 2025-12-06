@@ -70,20 +70,22 @@ async def get_current_user(
         cached_user = await cache.get_user_data(user_id)
         if cached_user:
             # Reconstruct User object from cached data
+            from datetime import datetime
             user = User(
                 id=cached_user["id"],
                 email=cached_user["email"],
                 username=cached_user["username"],
                 hashed_password=cached_user["hashed_password"],
+                created_at=datetime.fromisoformat(cached_user["created_at"]) if cached_user.get("created_at") else datetime.now(),
             )
             # Mark as not new (from cache)
             return user
 
     # Cache miss - fetch user from database
     result = await db.execute(select(User).where(User.id == user_id))
-    user = result.scalar_one_or_none()
+    db_user = result.scalar_one_or_none()
     
-    if not user:
+    if db_user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found",
@@ -94,15 +96,15 @@ async def get_current_user(
     if cache.is_available:
         asyncio.create_task(
             cache.set_user_data(user_id, {
-                "id": user.id,
-                "email": user.email,
-                "username": user.username,
-                "hashed_password": user.hashed_password,
-                "created_at": user.created_at.isoformat(),
+                "id": db_user.id,
+                "email": db_user.email,
+                "username": db_user.username,
+                "hashed_password": db_user.hashed_password,
+                "created_at": db_user.created_at.isoformat(),
             })
         )
 
-    return user
+    return db_user
 
 
 async def get_optional_user(

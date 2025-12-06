@@ -73,7 +73,7 @@ def create_access_token(
         "iat": datetime.now(timezone.utc),
     })
     
-    return jwt.encode(
+    return jwt.encode(  # type: ignore[no-any-return]
         to_encode,
         settings.jwt_secret_key,
         algorithm=settings.jwt_algorithm,
@@ -96,7 +96,7 @@ def decode_access_token(token: str) -> dict[str, Any] | None:
             settings.jwt_secret_key,
             algorithms=[settings.jwt_algorithm],
         )
-        return payload
+        return payload  # type: ignore[no-any-return]
     except JWTError:
         return None
 

@@ -206,3 +206,180 @@ class TestHealthEndpointNoAuth:
         response = await client.get("/health/ready")
         
         assert response.status_code != 401
+
+
+class TestSystemInfoEndpoint:
+    """Tests for the system information endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_info_returns_200(self, client: AsyncClient):
+        """Test info endpoint returns 200 OK."""
+        response = await client.get("/health/info")
+        
+        assert response.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_info_contains_application_data(self, client: AsyncClient):
+        """Test info endpoint contains application metadata."""
+        response = await client.get("/health/info")
+        data = response.json()
+        
+        assert "application" in data
+        app = data["application"]
+        assert "name" in app
+        assert "version" in app
+        assert "environment" in app
+
+    @pytest.mark.asyncio
+    async def test_info_contains_system_data(self, client: AsyncClient):
+        """Test info endpoint contains system information."""
+        response = await client.get("/health/info")
+        data = response.json()
+        
+        assert "system" in data
+        sys_info = data["system"]
+        assert "hostname" in sys_info
+        assert "platform" in sys_info
+        assert "python_version" in sys_info
+
+    @pytest.mark.asyncio
+    async def test_info_contains_uptime(self, client: AsyncClient):
+        """Test info endpoint contains uptime data."""
+        response = await client.get("/health/info")
+        data = response.json()
+        
+        assert "uptime" in data
+        uptime = data["uptime"]
+        assert "started_at" in uptime
+        assert "uptime_seconds" in uptime
+        assert "uptime_human" in uptime
+        assert uptime["uptime_seconds"] >= 0
+
+    @pytest.mark.asyncio
+    async def test_info_no_auth_required(self, client: AsyncClient):
+        """Test info endpoint doesn't require authentication."""
+        response = await client.get("/health/info")
+        
+        assert response.status_code != 401
+
+
+class TestDatabaseHealthEndpoint:
+    """Tests for the database health check endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_db_health_returns_200_when_healthy(self, client: AsyncClient):
+        """Test database health endpoint returns 200 when DB is healthy."""
+        response = await client.get("/health/db")
+        
+        assert response.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_db_health_contains_required_fields(self, client: AsyncClient):
+        """Test database health response contains all required fields."""
+        response = await client.get("/health/db")
+        data = response.json()
+        
+        assert data["service"] == "database"
+        assert data["type"] == "postgresql"
+        assert "status" in data
+        assert "latency_ms" in data
+        assert "timestamp" in data
+
+    @pytest.mark.asyncio
+    async def test_db_health_latency_positive(self, client: AsyncClient):
+        """Test database health latency is a positive number."""
+        response = await client.get("/health/db")
+        data = response.json()
+        
+        assert data["latency_ms"] >= 0
+
+    @pytest.mark.asyncio
+    async def test_db_health_no_auth_required(self, client: AsyncClient):
+        """Test database health endpoint doesn't require authentication."""
+        response = await client.get("/health/db")
+        
+        assert response.status_code != 401
+
+
+class TestCacheHealthEndpoint:
+    """Tests for the cache health check endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_cache_health_returns_200(self, client: AsyncClient):
+        """Test cache health endpoint returns 200 (cache is optional)."""
+        response = await client.get("/health/cache")
+        
+        assert response.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_cache_health_contains_required_fields(self, client: AsyncClient):
+        """Test cache health response contains all required fields."""
+        response = await client.get("/health/cache")
+        data = response.json()
+        
+        assert data["service"] == "cache"
+        assert data["type"] == "redis"
+        assert "status" in data
+        assert "timestamp" in data
+
+    @pytest.mark.asyncio
+    async def test_cache_health_status_valid(self, client: AsyncClient):
+        """Test cache health status is a valid value."""
+        response = await client.get("/health/cache")
+        data = response.json()
+        
+        assert data["status"] in ["healthy", "degraded"]
+
+    @pytest.mark.asyncio
+    async def test_cache_health_no_auth_required(self, client: AsyncClient):
+        """Test cache health endpoint doesn't require authentication."""
+        response = await client.get("/health/cache")
+        
+        assert response.status_code != 401
+
+
+class TestRootEndpointEnriched:
+    """Tests for the enriched root endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_root_contains_environment(self, client: AsyncClient):
+        """Test root endpoint contains environment info."""
+        response = await client.get("/")
+        data = response.json()
+        
+        assert "environment" in data
+        assert data["environment"] in ["development", "staging", "production"]
+
+    @pytest.mark.asyncio
+    async def test_root_contains_documentation_link(self, client: AsyncClient):
+        """Test root endpoint contains documentation link."""
+        response = await client.get("/")
+        data = response.json()
+        
+        assert "documentation" in data
+        assert data["documentation"] == "/docs"
+
+
+class TestLivenessEnriched:
+    """Tests for the enriched liveness probe."""
+
+    @pytest.mark.asyncio
+    async def test_liveness_contains_timestamp(self, client: AsyncClient):
+        """Test liveness probe includes timestamp."""
+        response = await client.get("/health/live")
+        data = response.json()
+        
+        assert "timestamp" in data
+        assert "T" in data["timestamp"]
+
+
+class TestReadinessEnriched:
+    """Tests for the enriched readiness probe."""
+
+    @pytest.mark.asyncio
+    async def test_readiness_contains_timestamp(self, client: AsyncClient):
+        """Test readiness probe includes timestamp."""
+        response = await client.get("/health/ready")
+        data = response.json()
+        
+        assert "timestamp" in data

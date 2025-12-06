@@ -127,8 +127,13 @@ Lia-assignment/
 │   │       ├── chat.py          # Chat orchestrator
 │   │       ├── llm.py           # LLM adapters (Gemini/OpenAI)
 │   │       ├── sentiment.py     # Sentiment strategies
-│   │       ├── cache.py         # Redis caching
-│   │       └── rate_limit.py    # Rate limiting
+│   │       ├── cache/           # Modular cache system
+│   │       │   ├── base.py      # Base caching operations
+│   │       │   ├── conversation.py  # Conversation caching
+│   │       │   ├── static.py    # Static content caching
+│   │       │   ├── rate_limit.py    # Rate limiting cache
+│   │       │   └── user.py      # User data caching
+│   │       └── rate_limit.py    # Rate limiting service
 │   ├── alembic/                 # Database migrations
 │   ├── tests/                   # Pytest test suite
 │   ├── pyproject.toml           # Python dependencies (uv)
@@ -274,7 +279,9 @@ Open your browser to **http://localhost:5173**
 
 ## 🧪 Testing
 
-### Backend
+The project has comprehensive test coverage across both frontend and backend.
+
+### Backend (169 tests, ~51s)
 
 ```bash
 cd backend
@@ -283,13 +290,16 @@ uv run pytest --cov=app          # With coverage
 uv run pytest tests/test_auth.py # Specific file
 ```
 
-### Frontend
+### Frontend (300 tests, ~6s)
 
 ```bash
 cd frontend
-pnpm test                        # Run all tests
+pnpm test                        # Run all tests (watch mode)
+pnpm test --run                  # Run once
 pnpm test -- --coverage          # With coverage
 ```
+
+> **Total: 469 tests** with sub-second individual test execution
 
 ---
 

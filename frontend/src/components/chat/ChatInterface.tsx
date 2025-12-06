@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo, memo, lazy, Suspense } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Menu, Info, Sparkles } from 'lucide-react'
+import { toast } from 'sonner'
 import { chatApi } from '../../lib/api'
 import type { SentimentResult, ConversationDetail as ApiConversationDetail } from '../../lib/api'
 import { useAuth } from '../../context'
@@ -18,15 +19,19 @@ import { motion, AnimatePresence } from 'framer-motion'
 import ChatSidebar from './ChatSidebar'
 import MessageList from './MessageList'
 import ChatInput from './ChatInput'
+import ModelSettingsDialog from './ModelSettingsDialog'
 
 // Lazy load the heavy ChatInspector component (includes recharts)
 const ChatInspector = lazy(() => import('./ChatInspector'))
+
+const PAGE_SIZE = 50
 
 // Query key factories for consistent cache management
 // Note: 'methods' key is defined but fetched on-demand in ChatInspector
 const queryKeys = {
   history: (userId: number | undefined) => ['history', userId] as const,
-  conversation: (conversationId: string) => ['conversation', conversationId] as const,
+  conversation: (conversationId: string, offset = 0, limit = PAGE_SIZE) =>
+    ['conversation', conversationId, offset, limit] as const,
   models: ['models'] as const,
 }
 
@@ -51,6 +56,22 @@ export interface ChatMessage extends BaseChatMessage {
   error?: boolean
 }
 
+export interface ModelSettings {
+  temperature: number
+  maxTokens: number
+  topP: number
+  frequencyPenalty: number
+  presencePenalty: number
+}
+
+const DEFAULT_MODEL_SETTINGS: ModelSettings = {
+  temperature: 0.7,
+  maxTokens: 8192,
+  topP: 1.0,
+  frequencyPenalty: 0.0,
+  presencePenalty: 0.0,
+}
+
 // ============ Main Component ============
 
 const ChatInterface: React.FC = () => {
@@ -61,13 +82,22 @@ const ChatInterface: React.FC = () => {
   const [method, setMethod] = useState('llm_separate')
   const [provider, setProvider] = useState('gemini')
   const [model, setModel] = useState('gemini-2.5-flash')
+  const [modelSettings, setModelSettings] = useState<ModelSettings>(DEFAULT_MODEL_SETTINGS)
   const [conversationId, setConversationId] = useState<string>()
+  const [conversationMeta, setConversationMeta] = useState<{
+    hasMore: boolean
+    total: number
+    offset: number
+    limit: number
+  } | null>(null)
   
   // UI state
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null)
   const [isLoadingConversation, setIsLoadingConversation] = useState(false)
+  const [isLoadingMore, setIsLoadingMore] = useState(false)
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [isInspectorOpen, setIsInspectorOpen] = useState(true)
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const queryClient = useQueryClient()
@@ -78,6 +108,7 @@ const ChatInterface: React.FC = () => {
   const methodRef = useRef(method)
   const providerRef = useRef(provider)
   const modelRef = useRef(model)
+  const modelSettingsRef = useRef(modelSettings)
   const conversationIdRef = useRef(conversationId)
   
   // Keep refs updated
@@ -85,6 +116,7 @@ const ChatInterface: React.FC = () => {
   useEffect(() => { methodRef.current = method }, [method])
   useEffect(() => { providerRef.current = provider }, [provider])
   useEffect(() => { modelRef.current = model }, [model])
+  useEffect(() => { modelSettingsRef.current = modelSettings }, [modelSettings])
   useEffect(() => { conversationIdRef.current = conversationId }, [conversationId])
 
   // Chat hook with debounced history invalidation
@@ -106,7 +138,9 @@ const ChatInterface: React.FC = () => {
         queryClient.invalidateQueries({ queryKey: queryKeys.conversation(conversationIdRef.current) })
       }
     }, [queryClient, user?.id]),
-    onError: console.error,
+    onError: useCallback((error: Error) => {
+      toast.error(error.message || 'An error occurred while sending message')
+    }, []),
     onConversationIdChange: setConversationId,
   })
 
@@ -137,10 +171,16 @@ const ChatInterface: React.FC = () => {
     gcTime: 24 * 60 * 60 * 1000, // Keep in cache for 24 hours
   })
 
-  // Auto-scroll to bottom
+  // Auto-scroll to bottom - use instant during streaming to prevent jumpy behavior
+  const prevMessageCountRef = useRef(chatMessages.length)
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [chatMessages])
+    const isNewMessage = chatMessages.length > prevMessageCountRef.current
+    prevMessageCountRef.current = chatMessages.length
+    
+    // Use smooth scroll only for new messages, instant for streaming updates
+    const behavior = isStreaming && !isNewMessage ? 'instant' : 'smooth'
+    messagesEndRef.current?.scrollIntoView({ behavior })
+  }, [chatMessages, isStreaming])
 
   // Auto-select last message
   useEffect(() => {
@@ -159,7 +199,8 @@ const ChatInterface: React.FC = () => {
       method: methodRef.current, 
       provider: providerRef.current, 
       model: modelRef.current, 
-      conversationId: conversationIdRef.current 
+      conversationId: conversationIdRef.current,
+      modelSettings: modelSettingsRef.current,
     })
     setInput('')
   }, [input, isStreaming, sendMessage])
@@ -188,7 +229,8 @@ const ChatInterface: React.FC = () => {
       method: methodRef.current, 
       provider: providerRef.current, 
       model: modelRef.current, 
-      conversationId: conversationIdRef.current 
+      conversationId: conversationIdRef.current,
+      modelSettings: modelSettingsRef.current,
     })
   }, [chatMessages, setChatMessages, sendMessage])
 
@@ -197,12 +239,14 @@ const ChatInterface: React.FC = () => {
     setIsLoadingConversation(true)
     try {
       // Use queryClient to leverage cache - check if already cached
-      const cachedData = queryClient.getQueryData<ApiConversationDetail>(queryKeys.conversation(convId))
+      const cachedData = queryClient.getQueryData<ApiConversationDetail>(
+        queryKeys.conversation(convId, 0, PAGE_SIZE)
+      )
       
       // Fetch with cache support
       const conv = cachedData ?? await queryClient.fetchQuery({
-        queryKey: queryKeys.conversation(convId),
-        queryFn: () => chatApi.getConversation(convId),
+        queryKey: queryKeys.conversation(convId, 0, PAGE_SIZE),
+        queryFn: () => chatApi.getConversation(convId, { limit: PAGE_SIZE, offset: 0 }),
         staleTime: 60 * 1000, // Consider fresh for 1 minute
       })
       
@@ -217,10 +261,16 @@ const ChatInterface: React.FC = () => {
           cumulative?: SentimentResult | null 
         } | undefined
         
+        // Extract thoughts from model_info for assistant messages
+        const thoughts = msg.role === 'assistant' && msg.model_info?.thoughts
+          ? msg.model_info.thoughts
+          : undefined
+        
         return {
           id: msg.id.toString(),
           role: msg.role as 'user' | 'assistant',
           content: msg.content,
+          thoughts,
           timestamp: new Date(msg.created_at),
           sentiment: sentimentData?.message,
           cumulativeSentiment: sentimentData?.cumulative ?? undefined,
@@ -229,6 +279,12 @@ const ChatInterface: React.FC = () => {
 
       setChatMessages(loadedMessages)
       setConversationId(convId)
+      setConversationMeta({
+        hasMore: conv.has_more,
+        total: conv.total_messages,
+        offset: conv.offset + conv.messages.length,
+        limit: conv.limit,
+      })
       setSelectedMessageId(loadedMessages.length > 0 ? loadedMessages[loadedMessages.length - 1].id : null)
       
       if (window.innerWidth < 768) setIsSidebarOpen(false)
@@ -243,6 +299,7 @@ const ChatInterface: React.FC = () => {
   const startNewConversation = useCallback(() => {
     clearMessages()
     setConversationId(undefined)
+    setConversationMeta(null)
     setSelectedMessageId(null)
     if (window.innerWidth < 768) setIsSidebarOpen(false)
   }, [clearMessages])
@@ -257,7 +314,7 @@ const ChatInterface: React.FC = () => {
       if (conversationId === convId) startNewConversation()
       // Invalidate both history and the specific conversation cache
       queryClient.invalidateQueries({ queryKey: queryKeys.history(user?.id) })
-      queryClient.removeQueries({ queryKey: queryKeys.conversation(convId) })
+      queryClient.removeQueries({ queryKey: ['conversation', convId] })
     } catch (error) {
       console.error('Error deleting:', error)
     }
@@ -303,6 +360,60 @@ const ChatInterface: React.FC = () => {
     [status]
   )
 
+  const loadMoreMessages = useCallback(async () => {
+    if (!conversationIdRef.current) return
+    setIsLoadingMore(true)
+    try {
+      const nextOffset = chatMessages.length
+      const conv = await chatApi.getConversation(conversationIdRef.current, {
+        limit: PAGE_SIZE,
+        offset: nextOffset,
+      })
+
+      const loadedMessages: BaseChatMessage[] = conv.messages.map(msg => {
+        const sentimentData = msg.sentiment_data as { 
+          message?: SentimentResult
+          cumulative?: SentimentResult | null 
+        } | undefined
+        
+        // Extract thoughts from model_info for assistant messages
+        const thoughts = msg.role === 'assistant' && msg.model_info?.thoughts
+          ? msg.model_info.thoughts
+          : undefined
+        
+        return {
+          id: msg.id.toString(),
+          role: msg.role as 'user' | 'assistant',
+          content: msg.content,
+          thoughts,
+          timestamp: new Date(msg.created_at),
+          sentiment: sentimentData?.message,
+          cumulativeSentiment: sentimentData?.cumulative ?? undefined,
+        }
+      })
+
+      setChatMessages(prev => {
+        const existing = new Set(prev.map(m => m.id))
+        const merged = [...prev]
+        loadedMessages.forEach(m => {
+          if (!existing.has(m.id)) merged.push(m)
+        })
+        return merged
+      })
+
+      setConversationMeta({
+        hasMore: conv.has_more,
+        total: conv.total_messages,
+        offset: conv.offset + conv.messages.length,
+        limit: conv.limit,
+      })
+    } catch (error) {
+      console.error('Error loading more messages:', error)
+    } finally {
+      setIsLoadingMore(false)
+    }
+  }, [chatMessages.length, setChatMessages])
+
   // Stable callback refs to prevent child re-renders
   const closeSidebar = useCallback(() => setIsSidebarOpen(false), [])
   const openSidebar = useCallback(() => setIsSidebarOpen(true), [])
@@ -342,28 +453,37 @@ const ChatInterface: React.FC = () => {
               <Menu className="w-5 h-5" />
             </Button>
             <span className="text-sm font-medium text-muted-foreground hidden sm:block">
-              Assistant
+             Lia Assistant
             </span>
           </div>
           
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant={isInspectorOpen ? 'secondary' : 'ghost'}
-                  size="icon"
-                  onClick={toggleInspector}
-                  className={cn(
-                    'transition-all duration-200',
-                    isInspectorOpen && 'bg-secondary text-foreground'
-                  )}
-                >
-                  <Info className="w-5 h-5" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Toggle Inspector</TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
+          <div className="flex items-center gap-1">
+            <TooltipProvider>
+              <ModelSettingsDialog
+                modelSettings={modelSettings}
+                setModelSettings={setModelSettings}
+                open={isSettingsOpen}
+                onOpenChange={setIsSettingsOpen}
+              />
+              
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant={isInspectorOpen ? 'secondary' : 'ghost'}
+                    size="icon"
+                    onClick={toggleInspector}
+                    className={cn(
+                      'transition-all duration-200 text-muted-foreground hover:text-foreground',
+                      isInspectorOpen && 'bg-secondary text-foreground'
+                    )}
+                  >
+                    <Info className="w-5 h-5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Toggle Inspector</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
         </div>
 
         {/* Loading Overlay */}
@@ -389,6 +509,18 @@ const ChatInterface: React.FC = () => {
         </AnimatePresence>
 
         {/* Messages */}
+        {conversationMeta?.hasMore && (
+          <div className="flex justify-center py-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={loadMoreMessages}
+              disabled={isLoadingMore || isLoadingConversation}
+            >
+              {isLoadingMore ? 'Loading more...' : 'Load older messages'}
+            </Button>
+          </div>
+        )}
         <MessageList 
           messages={messages}
           selectedMessageId={selectedMessageId}

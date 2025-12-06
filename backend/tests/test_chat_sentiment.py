@@ -24,9 +24,10 @@ from app.services.sentiment import SentimentResult
 class MockStreamChunk:
     """Mock stream chunk for LLM responses."""
     
-    def __init__(self, content: str, is_final: bool = False):
+    def __init__(self, content: str, is_final: bool = False, is_thought: bool = False):
         self.content = content
         self.is_final = is_final
+        self.is_thought = is_thought
 
 
 async def mock_llm_stream(*args, **kwargs):
@@ -137,71 +138,12 @@ class TestChatOrchestrator:
         mock_cache_service_enabled.get_conversation_context.assert_called_once()
 
 
-class TestUserMessagesCache:
-    """Tests for user messages caching for cumulative sentiment."""
-
-    @pytest.mark.asyncio
-    async def test_get_user_messages_from_db(
-        self,
-        test_db,
-        conversation_with_messages,
-        mock_cache_service,
-    ):
-        """Test fetching user messages from database."""
-        conversation, messages = conversation_with_messages
-        orchestrator = ChatOrchestrator(cache_service=mock_cache_service)
-        
-        user_messages = await orchestrator._get_user_messages(
-            test_db, conversation.id
-        )
-        
-        assert len(user_messages) == 2
-        assert "Hello, how are you?" in user_messages
-        assert "What can you help me with?" in user_messages
-
-    @pytest.mark.asyncio
-    async def test_get_user_messages_from_cache(
-        self,
-        test_db,
-        test_conversation: Conversation,
-        mock_cache_service_enabled,
-    ):
-        """Test fetching user messages from cache."""
-        cached_messages = ["Cached message 1", "Cached message 2"]
-        mock_cache_service_enabled.get_user_messages = AsyncMock(
-            return_value=cached_messages
-        )
-        
-        orchestrator = ChatOrchestrator(cache_service=mock_cache_service_enabled)
-        
-        user_messages = await orchestrator._get_user_messages(
-            test_db, test_conversation.id
-        )
-        
-        assert user_messages == cached_messages
-        mock_cache_service_enabled.get_user_messages.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_get_user_messages_with_current_message(
-        self,
-        test_db,
-        conversation_with_messages,
-        mock_cache_service,
-    ):
-        """Test fetching user messages with current message appended."""
-        conversation, messages = conversation_with_messages
-        orchestrator = ChatOrchestrator(cache_service=mock_cache_service)
-        
-        user_messages = await orchestrator._get_user_messages(
-            test_db, conversation.id, include_current="New message"
-        )
-        
-        assert len(user_messages) == 3
-        assert "New message" in user_messages
-
-
-class TestCumulativeSentiment:
-    """Tests for cumulative sentiment calculation."""
+class TestIncrementalSentiment:
+    """Tests for incremental cumulative sentiment calculation.
+    
+    The new approach uses incremental sentiment updates instead of
+    re-analyzing all messages each time.
+    """
 
     @pytest.mark.asyncio
     async def test_cumulative_sentiment_called_for_multiple_messages(
@@ -239,20 +181,19 @@ class TestCumulativeSentiment:
         ):
             events.append(event)
         
-        # Should have called sentiment.analyze twice:
-        # 1. For the current message
-        # 2. For cumulative sentiment
-        assert mock_sentiment_service.analyze.call_count == 2
+        # With incremental sentiment, we now only call analyze once for the current message
+        # Cumulative is calculated incrementally using update_cumulative
+        assert mock_sentiment_service.analyze.call_count == 1
 
     @pytest.mark.asyncio
-    async def test_cumulative_sentiment_includes_all_user_messages(
+    async def test_cumulative_sentiment_uses_incremental_update(
         self,
         test_db,
         conversation_with_messages,
         mock_cache_service,
         mock_sentiment_service,
     ):
-        """Test that cumulative sentiment includes all user messages."""
+        """Test that cumulative sentiment uses incremental update method."""
         conversation, messages = conversation_with_messages
         
         mock_llm = MagicMock()
@@ -277,14 +218,15 @@ class TestCumulativeSentiment:
         ):
             pass
         
-        # Check the cumulative sentiment call (second call)
-        cumulative_call_args = mock_sentiment_service.analyze.call_args_list[1]
-        analyzed_text = cumulative_call_args[0][0]
+        # With incremental sentiment, analyze is called once for the message
+        assert mock_sentiment_service.analyze.call_count == 1
         
-        # Should include all user messages
-        assert "Hello, how are you?" in analyzed_text
-        assert "What can you help me with?" in analyzed_text
-        assert "New message" in analyzed_text
+        # And update_cumulative is called once to update the cumulative sentiment
+        assert mock_sentiment_service.update_cumulative.call_count == 1
+        
+        # Check that update_cumulative received the new message
+        update_call_args = mock_sentiment_service.update_cumulative.call_args
+        assert update_call_args[1]["new_message"] == "New message"
 
 
 class TestConversationHistory:
@@ -378,6 +320,8 @@ class TestConversationDetail:
         assert detail is not None
         assert detail["id"] == conversation.id
         assert len(detail["messages"]) == 4
+        assert detail["total_messages"] == 4
+        assert detail["has_more"] is False
 
     @pytest.mark.asyncio
     async def test_get_conversation_detail_not_found(

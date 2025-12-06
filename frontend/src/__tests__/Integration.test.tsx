@@ -63,6 +63,8 @@ vi.mock('../lib/api', () => ({
     getConversation: vi.fn(),
     send: vi.fn(),
     sendStream: vi.fn(),
+    getModels: vi.fn().mockResolvedValue({ gemini: ['gemini-2.5-flash'] }),
+    getMethods: vi.fn().mockResolvedValue(['llm_separate', 'structured']),
   },
   api: {
     get: vi.fn(),
@@ -189,7 +191,7 @@ describe('AuthPage Integration', () => {
   })
 
   it('allows switching to register mode', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     
     render(
       <AuthContext.Provider value={createMockAuthContext()}>
@@ -256,7 +258,7 @@ describe('ChatInterface Integration', () => {
   })
 
   it('allows typing in input', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     
     renderWithProviders(<ChatInterface />, {
       user: mockUser,

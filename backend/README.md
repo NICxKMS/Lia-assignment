@@ -106,7 +106,7 @@ backend/
 │   │       ├── __init__.py
 │   │       ├── auth.py          # POST /register, /login, GET /me
 │   │       ├── chat.py          # POST /stream, GET /history, etc.
-│   │       └── health.py        # GET /health, /health/live, /health/ready
+│   │       └── health.py        # GET /, /health, /health/*
 │   │
 │   ├── core/                    # Core Configuration
 │   │   ├── __init__.py
@@ -117,7 +117,7 @@ backend/
 │   │
 │   ├── db/                      # Database Layer
 │   │   ├── __init__.py
-│   │   ├── models.py            # SQLAlchemy ORM models (User, Conversation, Message)
+│   │   ├── models.py            # SQLAlchemy ORM models
 │   │   └── session.py           # Async session factory
 │   │
 │   └── services/                # Business Logic
@@ -125,8 +125,15 @@ backend/
 │       ├── chat.py              # ChatOrchestrator - main coordinator
 │       ├── llm.py               # LLMService with Gemini/OpenAI adapters
 │       ├── sentiment.py         # SentimentService with 3 strategies
-│       ├── cache.py             # CacheService for Redis operations
-│       └── rate_limit.py        # RateLimitService
+│       ├── rate_limit.py        # RateLimitService
+│       └── cache/               # Modular cache package
+│           ├── __init__.py      # Public exports
+│           ├── base.py          # Base cache operations
+│           ├── constants.py     # Key patterns and TTLs
+│           ├── conversation.py  # Conversation caching
+│           ├── history.py       # User history caching
+│           ├── models.py        # Static model/method caching
+│           └── user.py          # User data caching
 │
 ├── alembic/                     # Database Migrations
 │   ├── env.py
@@ -139,7 +146,7 @@ backend/
 │       ├── 005_add_conversation_updated_index.py
 │       └── 006_remove_redundant_user_id_index.py
 │
-├── tests/                       # Test Suite
+├── tests/                       # Test Suite (169 tests)
 │   ├── conftest.py              # Pytest fixtures
 │   ├── test_auth.py
 │   ├── test_chat_api.py
@@ -226,7 +233,7 @@ Content-Type: application/json
 {
   "message": "Hello, how are you?",
   "provider": "gemini",
-  "model": "gemini-2.0-flash",
+  "model": "gemini-2.5-flash",
   "sentiment_method": "structured",
   "conversation_id": null
 }
@@ -317,7 +324,7 @@ Authorization: Bearer <token>
 ```json
 {
   "gemini": [
-    {"id": "gemini-2.0-flash", "name": "Gemini 2.0 Flash", "description": "Fast and efficient"},
+    {"id": "gemini-2.5-flash", "name": "Gemini 2.5 Flash", "description": "Fast and efficient"},
     {"id": "gemini-1.5-pro", "name": "Gemini 1.5 Pro", "description": "Most capable"}
   ],
   "openai": [
@@ -349,7 +356,25 @@ Authorization: Bearer <token>
 
 ### Health
 
-#### Health Check
+#### Root Info
+
+```http
+GET /
+```
+
+**Response:**
+```json
+{
+  "name": "Lia Chatbot",
+  "version": "2.0.0",
+  "status": "healthy",
+  "environment": "development",
+  "timestamp": "2025-12-05T10:00:00Z",
+  "documentation": "/docs"
+}
+```
+
+#### Comprehensive Health Check
 
 ```http
 GET /health
@@ -359,32 +384,81 @@ GET /health
 ```json
 {
   "status": "healthy",
-  "timestamp": "2025-12-03T10:00:00Z",
+  "timestamp": "2025-12-05T10:00:00Z",
   "version": "2.0.0",
   "services": {
     "database": {
       "status": "healthy",
-      "latency_ms": 5.2
+      "latency_ms": 5.2,
+      "details": {"type": "postgresql"}
     },
     "cache": {
       "status": "healthy",
-      "latency_ms": 12.8
+      "latency_ms": 12.8,
+      "details": {"type": "redis", "provider": "upstash"}
     }
   }
 }
 ```
 
-#### Liveness Probe
+#### Liveness Probe (Kubernetes)
 
 ```http
 GET /health/live
 ```
 
-#### Readiness Probe
+Returns 200 if the application process is running.
+
+#### Readiness Probe (Kubernetes)
 
 ```http
 GET /health/ready
 ```
+
+Returns 200 if ready to accept traffic, 503 if database unavailable.
+
+#### System Information
+
+```http
+GET /health/info
+```
+
+**Response:**
+```json
+{
+  "application": {
+    "name": "Lia Chatbot",
+    "version": "2.0.0",
+    "environment": "development"
+  },
+  "system": {
+    "hostname": "server-01",
+    "platform": "Linux",
+    "python_version": "3.11.14"
+  },
+  "uptime": {
+    "started_at": "2025-12-05T08:00:00Z",
+    "uptime_seconds": 7200,
+    "uptime_human": "0d 2h 0m 0s"
+  }
+}
+```
+
+#### Database Health
+
+```http
+GET /health/db
+```
+
+Returns detailed database connectivity status with latency.
+
+#### Cache Health
+
+```http
+GET /health/cache
+```
+
+Returns detailed cache connectivity status with latency.
 
 ---
 

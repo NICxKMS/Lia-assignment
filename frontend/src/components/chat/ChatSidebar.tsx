@@ -217,6 +217,29 @@ const ChatSidebar = memo<ChatSidebarProps>(({
       >
         <Plus className="w-4 h-4" />
       </Button>
+      
+      {/* Spacer to push user icon to bottom */}
+      <div className="flex-1" />
+      
+      {/* User icon at the bottom */}
+      {user && (
+        <div
+          className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-xs font-medium cursor-pointer hover:bg-primary/30 transition-colors"
+          title={user.username}
+        >
+          {user.username.charAt(0).toUpperCase()}
+        </div>
+      )}
+      
+      <Button
+        onClick={onLogout}
+        variant="ghost"
+        size="icon"
+        className="h-8 w-8 hover:bg-destructive/10 hover:text-destructive"
+        aria-label="Logout"
+      >
+        <LogOut className="w-4 h-4" />
+      </Button>
     </div>
   )
 

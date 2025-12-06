@@ -109,7 +109,7 @@ const ChatInspector = memo<ChatInspectorProps>(({
   isOpen,
   onClose,
   method,
-  setMethod
+  setMethod,
 }) => {
   // Calculate overall sentiment from the last message that has it
   const lastSentimentMessage = [...messages].reverse().find(m => m.cumulativeSentiment);

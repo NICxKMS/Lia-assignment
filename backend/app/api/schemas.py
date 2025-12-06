@@ -86,6 +86,16 @@ class UIMessage(BaseModel):
     parts: list[MessagePart]
 
 
+class ModelSettings(BaseModel):
+    """Schema for model generation settings."""
+    
+    temperature: float = Field(default=0.7, ge=0.0, le=2.0, description="Controls randomness (0=deterministic, 2=very random)")
+    max_tokens: int = Field(default=2048, ge=1, le=32000, description="Maximum tokens in response")
+    top_p: float = Field(default=1.0, ge=0.0, le=1.0, description="Nucleus sampling threshold")
+    frequency_penalty: float = Field(default=0.0, ge=-2.0, le=2.0, description="Penalize repeated tokens")
+    presence_penalty: float = Field(default=0.0, ge=-2.0, le=2.0, description="Penalize tokens already present")
+
+
 class ChatRequest(BaseModel):
     """Schema for chat request supporting multiple formats."""
     
@@ -98,11 +108,14 @@ class ChatRequest(BaseModel):
     # Common fields
     conversation_id: str | None = None
     provider: str = Field(default="gemini", pattern=r"^(gemini|openai)$")
-    model: str = Field(default="gemini-2.0-flash")
+    model: str = Field(default="gemini-2.5-flash")
     sentiment_method: str = Field(
         default="llm_separate",
         pattern=r"^(nlp_api|llm_separate|structured)$",
     )
+    
+    # Model settings
+    model_settings: ModelSettings | None = None
     
     # AI SDK extras (accepted but ignored)
     id: str | None = None
@@ -163,6 +176,10 @@ class ConversationDetail(BaseModel):
     title: str | None = None
     created_at: datetime
     updated_at: datetime
+    total_messages: int
+    limit: int
+    offset: int
+    has_more: bool
     messages: list[MessageResponse]
 
     class ConfigDict:

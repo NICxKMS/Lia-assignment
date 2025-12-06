@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import React from 'react'
 import { render, type RenderOptions } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -30,6 +31,7 @@ export const createTestQueryClient = () =>
   new QueryClient({
     defaultOptions: {
       queries: {
+        queryFn: async () => null,
         retry: false,
         gcTime: 0,
         staleTime: 0,

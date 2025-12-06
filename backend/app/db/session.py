@@ -42,15 +42,17 @@ def get_engine() -> AsyncEngine:
             "pool_pre_ping": True,  # Verify connections before use
         }
         
+        url = settings.neon_database_url
         # Disable asyncpg prepared statement cache to avoid InvalidCachedStatementError
         # when database schema changes or when using pgbouncer.
-        # Both settings are needed for full compatibility:
-        # - statement_cache_size: asyncpg's own cache
-        # - prepared_statement_cache_size: additional cache setting
-        connect_args: dict[str, Any] = {
-            "statement_cache_size": 0,
-            "prepared_statement_cache_size": 0,
-        }
+        # For SQLite tests, connect_args must be empty.
+        if url.startswith("sqlite"):
+            connect_args: dict[str, Any] = {}
+        else:
+            connect_args = {
+                "statement_cache_size": 0,
+                "prepared_statement_cache_size": 0,
+            }
         
         if use_null_pool:
             # Serverless: let Neon handle connection pooling
@@ -71,7 +73,7 @@ def get_engine() -> AsyncEngine:
             )
         
         _engine = create_async_engine(
-            settings.neon_database_url,
+            url,
             connect_args=connect_args,
             **engine_kwargs
         )

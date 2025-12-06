@@ -1,5 +1,6 @@
 import { lazy, Suspense } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { Toaster } from 'sonner'
 import { AuthProvider, useAuth } from './context'
 
 // Lazy load heavy components
@@ -57,6 +58,16 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
+        <Toaster 
+          position="top-right"
+          toastOptions={{
+            style: {
+              background: 'hsl(var(--bg-secondary))',
+              color: 'hsl(var(--text-primary))',
+              border: '1px solid hsl(var(--border))',
+            },
+          }}
+        />
         <AuthenticatedApp />
       </AuthProvider>
     </QueryClientProvider>

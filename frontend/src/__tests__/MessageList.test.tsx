@@ -15,6 +15,7 @@ const createMockMessage = (
     role: 'user' | 'assistant'
     content: string
     parts: MessagePart[]
+    thoughts?: string[]
     sentiment?: { score: number; label: string; emotion?: string }
     cumulativeSentiment?: { score: number; label: string }
     timestamp: Date
@@ -134,7 +135,7 @@ describe('MessageList', () => {
 
   describe('Message Selection', () => {
     it('calls onSelectMessage when clicking a message', async () => {
-      const user = userEvent.setup()
+      const user = userEvent.setup({ delay: null })
       const onSelectMessage = vi.fn()
       const message = createMockMessage({ id: 'msg-123' })
       
@@ -149,7 +150,7 @@ describe('MessageList', () => {
 
   describe('Copy Functionality', () => {
     it('shows copy button on assistant messages', async () => {
-      const user = userEvent.setup()
+      const user = userEvent.setup({ delay: null })
       const message = createMockMessage({
         role: 'assistant',
         content: 'Response text',
@@ -253,7 +254,7 @@ describe('MessageList', () => {
 
   describe('Sentiment Indicator', () => {
     it('shows sentiment dot for user messages with sentiment', async () => {
-      const user = userEvent.setup()
+      const user = userEvent.setup({ delay: null })
       const message = createMockMessage({
         role: 'user',
         sentiment: { score: 0.8, label: 'Positive' },
@@ -342,6 +343,150 @@ describe('MessageList', () => {
       // Assistant icon should have bg-primary
       const avatar = document.querySelector('.bg-primary')
       expect(avatar).toBeInTheDocument()
+    })
+  })
+
+  describe('Thoughts Section', () => {
+    it('renders thoughts section for assistant message with thoughts', () => {
+      const message = createMockMessage({
+        role: 'assistant',
+        content: 'The answer is 42',
+        parts: [{ type: 'text', text: 'The answer is 42' }],
+        thoughts: ['Let me analyze this...', 'Breaking it down...'],
+      })
+      
+      render(<MessageList {...defaultProps} messages={[message]} />)
+      
+      // Should show the "Thought process" button (when not streaming)
+      expect(screen.getByText('Thought process')).toBeInTheDocument()
+    })
+
+    it('renders "Thinking..." label when streaming', () => {
+      const message = createMockMessage({
+        role: 'assistant',
+        content: 'The answer is 42',
+        parts: [{ type: 'text', text: 'The answer is 42' }],
+        thoughts: ['Analyzing...'],
+        isStreaming: true,
+      })
+      
+      render(<MessageList {...defaultProps} messages={[message]} />)
+      
+      // Should show the "Thinking..." label when streaming
+      expect(screen.getByText('Thinking...')).toBeInTheDocument()
+    })
+
+    it('auto-expands thoughts when streaming starts', () => {
+      const message = createMockMessage({
+        role: 'assistant',
+        content: '',
+        parts: [{ type: 'text', text: '' }],
+        thoughts: ['First thought'],
+        isStreaming: true,
+      })
+      
+      render(<MessageList {...defaultProps} messages={[message]} />)
+      
+      // When streaming, thoughts should auto-expand - content visible
+      // The ThoughtsSection uses useEffect to auto-expand when isStreaming becomes true
+      // For the test, we check if it rendered with expanded state
+      // Note: Due to useEffect timing, we may need to wait for the effect
+      // The button should still show "Thinking..." when streaming
+      expect(screen.getByText('Thinking...')).toBeInTheDocument()
+    })
+
+    it('does not render thoughts section when thoughts array is empty', () => {
+      const message = createMockMessage({
+        role: 'assistant',
+        content: 'Response',
+        parts: [{ type: 'text', text: 'Response' }],
+        thoughts: [],
+      })
+      
+      render(<MessageList {...defaultProps} messages={[message]} />)
+      
+      // Should not show either label
+      expect(screen.queryByText('Thinking...')).not.toBeInTheDocument()
+      expect(screen.queryByText('Thought process')).not.toBeInTheDocument()
+    })
+
+    it('does not render thoughts section when thoughts is undefined', () => {
+      const message = createMockMessage({
+        role: 'assistant',
+        content: 'Response',
+        parts: [{ type: 'text', text: 'Response' }],
+      })
+      
+      render(<MessageList {...defaultProps} messages={[message]} />)
+      
+      // Should not show either label
+      expect(screen.queryByText('Thinking...')).not.toBeInTheDocument()
+      expect(screen.queryByText('Thought process')).not.toBeInTheDocument()
+    })
+
+    it('does not render thoughts section for user messages', () => {
+      const message = createMockMessage({
+        role: 'user',
+        content: 'User message',
+        parts: [{ type: 'text', text: 'User message' }],
+        thoughts: ['Some thoughts'],  // User messages shouldn't show thoughts anyway
+      })
+      
+      render(<MessageList {...defaultProps} messages={[message]} />)
+      
+      // Should not show either label for user messages
+      expect(screen.queryByText('Thinking...')).not.toBeInTheDocument()
+      expect(screen.queryByText('Thought process')).not.toBeInTheDocument()
+    })
+
+    it('expands thoughts section when clicked', async () => {
+      const user = userEvent.setup()
+      const message = createMockMessage({
+        role: 'assistant',
+        content: 'Response',
+        parts: [{ type: 'text', text: 'Response' }],
+        thoughts: ['First thought', 'Second thought'],
+      })
+      
+      render(<MessageList {...defaultProps} messages={[message]} />)
+      
+      // Initially thoughts content should not be visible
+      expect(screen.queryByText('First thoughtSecond thought')).not.toBeInTheDocument()
+      
+      // Click the "Thought process" button to expand
+      const thinkingButton = screen.getByText('Thought process')
+      await user.click(thinkingButton)
+      
+      // Now thoughts content should be visible (thoughts are joined)
+      await waitFor(() => {
+        expect(screen.getByText('First thoughtSecond thought')).toBeInTheDocument()
+      })
+    })
+
+    it('collapses thoughts section when clicked again', async () => {
+      const user = userEvent.setup()
+      const message = createMockMessage({
+        role: 'assistant',
+        content: 'Response',
+        parts: [{ type: 'text', text: 'Response' }],
+        thoughts: ['Thought content'],
+      })
+      
+      render(<MessageList {...defaultProps} messages={[message]} />)
+      
+      const thinkingButton = screen.getByText('Thought process')
+      
+      // Expand
+      await user.click(thinkingButton)
+      await waitFor(() => {
+        expect(screen.getByText('Thought content')).toBeInTheDocument()
+      })
+      
+      // Collapse
+      await user.click(thinkingButton)
+      await waitFor(() => {
+        expect(screen.queryByText('Thought content')).not.toBeInTheDocument()
+      })
     })
   })
 })

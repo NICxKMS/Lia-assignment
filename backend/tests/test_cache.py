@@ -32,7 +32,7 @@ class TestCacheServiceInit:
 
     def test_init_without_redis(self):
         """Test cache service initializes without Redis config."""
-        with patch("app.services.cache.get_settings") as mock_settings:
+        with patch("app.services.cache.base.get_settings") as mock_settings:
             mock_settings.return_value.redis_available = False
             
             service = CacheService()
@@ -41,7 +41,7 @@ class TestCacheServiceInit:
 
     def test_make_key(self):
         """Test cache key generation."""
-        with patch("app.services.cache.get_settings") as mock_settings:
+        with patch("app.services.cache.base.get_settings") as mock_settings:
             mock_settings.return_value.redis_available = False
             
             service = CacheService()
@@ -59,7 +59,7 @@ class TestConversationContextCache:
     @pytest.mark.asyncio
     async def test_get_conversation_context_unavailable(self):
         """Test get_conversation_context returns None when cache unavailable."""
-        with patch("app.services.cache.get_settings") as mock_settings:
+        with patch("app.services.cache.base.get_settings") as mock_settings:
             mock_settings.return_value.redis_available = False
             
             service = CacheService()
@@ -70,7 +70,7 @@ class TestConversationContextCache:
     @pytest.mark.asyncio
     async def test_set_conversation_context_unavailable(self):
         """Test set_conversation_context returns False when cache unavailable."""
-        with patch("app.services.cache.get_settings") as mock_settings:
+        with patch("app.services.cache.base.get_settings") as mock_settings:
             mock_settings.return_value.redis_available = False
             
             service = CacheService()
@@ -84,7 +84,7 @@ class TestConversationContextCache:
     @pytest.mark.asyncio
     async def test_append_to_context_unavailable(self):
         """Test append_to_context returns False when cache unavailable."""
-        with patch("app.services.cache.get_settings") as mock_settings:
+        with patch("app.services.cache.base.get_settings") as mock_settings:
             mock_settings.return_value.redis_available = False
             
             service = CacheService()
@@ -102,7 +102,7 @@ class TestUserMessagesCache:
     @pytest.mark.asyncio
     async def test_get_user_messages_unavailable(self):
         """Test get_user_messages returns None when cache unavailable."""
-        with patch("app.services.cache.get_settings") as mock_settings:
+        with patch("app.services.cache.base.get_settings") as mock_settings:
             mock_settings.return_value.redis_available = False
             
             service = CacheService()
@@ -113,7 +113,7 @@ class TestUserMessagesCache:
     @pytest.mark.asyncio
     async def test_set_user_messages_unavailable(self):
         """Test set_user_messages returns False when cache unavailable."""
-        with patch("app.services.cache.get_settings") as mock_settings:
+        with patch("app.services.cache.base.get_settings") as mock_settings:
             mock_settings.return_value.redis_available = False
             
             service = CacheService()
@@ -127,7 +127,7 @@ class TestUserMessagesCache:
     @pytest.mark.asyncio
     async def test_set_user_messages_empty_list(self):
         """Test set_user_messages returns False for empty list."""
-        with patch("app.services.cache.get_settings") as mock_settings:
+        with patch("app.services.cache.base.get_settings") as mock_settings:
             mock_settings.return_value.redis_available = False
             
             service = CacheService()
@@ -138,7 +138,7 @@ class TestUserMessagesCache:
     @pytest.mark.asyncio
     async def test_append_user_message_unavailable(self):
         """Test append_user_message returns False when cache unavailable."""
-        with patch("app.services.cache.get_settings") as mock_settings:
+        with patch("app.services.cache.base.get_settings") as mock_settings:
             mock_settings.return_value.redis_available = False
             
             service = CacheService()
@@ -153,7 +153,7 @@ class TestConversationHistoryCache:
     @pytest.mark.asyncio
     async def test_get_conversation_history_unavailable(self):
         """Test get_conversation_history returns None when cache unavailable."""
-        with patch("app.services.cache.get_settings") as mock_settings:
+        with patch("app.services.cache.base.get_settings") as mock_settings:
             mock_settings.return_value.redis_available = False
             
             service = CacheService()
@@ -164,7 +164,7 @@ class TestConversationHistoryCache:
     @pytest.mark.asyncio
     async def test_set_conversation_history_unavailable(self):
         """Test set_conversation_history returns False when cache unavailable."""
-        with patch("app.services.cache.get_settings") as mock_settings:
+        with patch("app.services.cache.base.get_settings") as mock_settings:
             mock_settings.return_value.redis_available = False
             
             service = CacheService()
@@ -182,7 +182,7 @@ class TestUserDataCache:
     @pytest.mark.asyncio
     async def test_get_user_data_unavailable(self):
         """Test get_user_data returns None when cache unavailable."""
-        with patch("app.services.cache.get_settings") as mock_settings:
+        with patch("app.services.cache.base.get_settings") as mock_settings:
             mock_settings.return_value.redis_available = False
             
             service = CacheService()
@@ -193,7 +193,7 @@ class TestUserDataCache:
     @pytest.mark.asyncio
     async def test_set_user_data_unavailable(self):
         """Test set_user_data returns False when cache unavailable."""
-        with patch("app.services.cache.get_settings") as mock_settings:
+        with patch("app.services.cache.base.get_settings") as mock_settings:
             mock_settings.return_value.redis_available = False
             
             service = CacheService()
@@ -209,7 +209,7 @@ class TestUserDataCache:
     @pytest.mark.asyncio
     async def test_get_user_by_email_unavailable(self):
         """Test get_user_by_email returns None when cache unavailable."""
-        with patch("app.services.cache.get_settings") as mock_settings:
+        with patch("app.services.cache.base.get_settings") as mock_settings:
             mock_settings.return_value.redis_available = False
             
             service = CacheService()
@@ -224,7 +224,7 @@ class TestCacheInvalidation:
     @pytest.mark.asyncio
     async def test_invalidate_conversation_unavailable(self):
         """Test invalidate_conversation succeeds when cache unavailable."""
-        with patch("app.services.cache.get_settings") as mock_settings:
+        with patch("app.services.cache.base.get_settings") as mock_settings:
             mock_settings.return_value.redis_available = False
             
             service = CacheService()
@@ -236,7 +236,7 @@ class TestCacheInvalidation:
     @pytest.mark.asyncio
     async def test_invalidate_user_history_unavailable(self):
         """Test invalidate_user_history returns False when cache unavailable."""
-        with patch("app.services.cache.get_settings") as mock_settings:
+        with patch("app.services.cache.base.get_settings") as mock_settings:
             mock_settings.return_value.redis_available = False
             
             service = CacheService()
@@ -247,7 +247,7 @@ class TestCacheInvalidation:
     @pytest.mark.asyncio
     async def test_invalidate_user_data_unavailable(self):
         """Test invalidate_user_data returns False when cache unavailable."""
-        with patch("app.services.cache.get_settings") as mock_settings:
+        with patch("app.services.cache.base.get_settings") as mock_settings:
             mock_settings.return_value.redis_available = False
             
             service = CacheService()
@@ -262,7 +262,7 @@ class TestStaticDataCache:
     @pytest.mark.asyncio
     async def test_get_available_models_unavailable(self):
         """Test get_available_models returns None when cache unavailable."""
-        with patch("app.services.cache.get_settings") as mock_settings:
+        with patch("app.services.cache.base.get_settings") as mock_settings:
             mock_settings.return_value.redis_available = False
             
             service = CacheService()
@@ -273,12 +273,12 @@ class TestStaticDataCache:
     @pytest.mark.asyncio
     async def test_set_available_models_unavailable(self):
         """Test set_available_models returns False when cache unavailable."""
-        with patch("app.services.cache.get_settings") as mock_settings:
+        with patch("app.services.cache.base.get_settings") as mock_settings:
             mock_settings.return_value.redis_available = False
             
             service = CacheService()
             result = await service.set_available_models({
-                "gemini": [{"id": "gemini-2.0-flash"}]
+                "gemini": [{"id": "gemini-2.5-flash"}]
             })
             
             assert result is False
@@ -286,7 +286,7 @@ class TestStaticDataCache:
     @pytest.mark.asyncio
     async def test_get_sentiment_methods_unavailable(self):
         """Test get_sentiment_methods returns None when cache unavailable."""
-        with patch("app.services.cache.get_settings") as mock_settings:
+        with patch("app.services.cache.base.get_settings") as mock_settings:
             mock_settings.return_value.redis_available = False
             
             service = CacheService()
@@ -297,7 +297,7 @@ class TestStaticDataCache:
     @pytest.mark.asyncio
     async def test_set_sentiment_methods_unavailable(self):
         """Test set_sentiment_methods returns False when cache unavailable."""
-        with patch("app.services.cache.get_settings") as mock_settings:
+        with patch("app.services.cache.base.get_settings") as mock_settings:
             mock_settings.return_value.redis_available = False
             
             service = CacheService()
@@ -314,7 +314,7 @@ class TestLowLevelOperations:
     @pytest.mark.asyncio
     async def test_get_unavailable(self):
         """Test get returns None when cache unavailable."""
-        with patch("app.services.cache.get_settings") as mock_settings:
+        with patch("app.services.cache.base.get_settings") as mock_settings:
             mock_settings.return_value.redis_available = False
             
             service = CacheService()
@@ -325,7 +325,7 @@ class TestLowLevelOperations:
     @pytest.mark.asyncio
     async def test_set_unavailable(self):
         """Test set returns False when cache unavailable."""
-        with patch("app.services.cache.get_settings") as mock_settings:
+        with patch("app.services.cache.base.get_settings") as mock_settings:
             mock_settings.return_value.redis_available = False
             
             service = CacheService()
@@ -336,7 +336,7 @@ class TestLowLevelOperations:
     @pytest.mark.asyncio
     async def test_delete_unavailable(self):
         """Test delete returns False when cache unavailable."""
-        with patch("app.services.cache.get_settings") as mock_settings:
+        with patch("app.services.cache.base.get_settings") as mock_settings:
             mock_settings.return_value.redis_available = False
             
             service = CacheService()
@@ -358,7 +358,7 @@ class TestLowLevelOperations:
     @pytest.mark.asyncio
     async def test_get_json_unavailable(self):
         """Test get_json returns None when cache unavailable."""
-        with patch("app.services.cache.get_settings") as mock_settings:
+        with patch("app.services.cache.base.get_settings") as mock_settings:
             mock_settings.return_value.redis_available = False
             
             service = CacheService()
@@ -373,7 +373,7 @@ class TestHealthCheck:
     @pytest.mark.asyncio
     async def test_check_health_unavailable(self):
         """Test check_health returns False when cache unavailable."""
-        with patch("app.services.cache.get_settings") as mock_settings:
+        with patch("app.services.cache.base.get_settings") as mock_settings:
             mock_settings.return_value.redis_available = False
             
             service = CacheService()

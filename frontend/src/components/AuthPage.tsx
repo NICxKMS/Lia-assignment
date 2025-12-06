@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useRef, memo } from 'react'
 import { useAuth } from '../context'
+import { extractApiError } from '../lib/api'
 import { Bot, Mail, Lock, User, ArrowRight, Loader2, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -53,14 +54,8 @@ const AuthPage = memo<AuthPageProps>(({ onSuccess }) => {
       }
       onSuccess?.()
     } catch (err: unknown) {
-      if (err instanceof Error) {
-        setError(err.message)
-      } else if (typeof err === 'object' && err !== null && 'response' in err) {
-        const axiosError = err as { response?: { data?: { detail?: string } } }
-        setError(axiosError.response?.data?.detail || 'Authentication failed')
-      } else {
-        setError('Authentication failed')
-      }
+      const errorMessage = await extractApiError(err)
+      setError(errorMessage)
     } finally {
       setIsLoading(false)
     }

@@ -127,11 +127,11 @@ main.py
     │       └── services/chat.py (ChatOrchestrator)
     │               ├── services/llm.py (LLMService)
     │               ├── services/sentiment.py (SentimentService)
-    │               ├── services/cache.py (CacheService)
+    │               ├── services/cache/ (CacheService)
     │               └── db/models.py
     │
     ├── api/routes/health.py
-    │       └── services/cache.py
+    │       └── services/cache/ (CacheService)
     │       └── db/session.py
     │
     └── core/
@@ -152,7 +152,7 @@ main.py
 |------|-----------|-------------|
 | `auth.py` | `/register`, `/login`, `/me` | User authentication |
 | `chat.py` | `/stream`, `/history`, `/conversation/*`, `/models`, `/methods` | Chat operations |
-| `health.py` | `/health`, `/health/live`, `/health/ready` | Health probes |
+| `health.py` | `/`, `/health`, `/health/*` | Health monitoring (7 endpoints) |
 
 #### Dependencies (`deps.py`)
 
@@ -243,19 +243,37 @@ class SentimentResult:
 - `llm_separate`: Dedicated LLM call for sentiment
 - `nlp_api`: Google Cloud Natural Language API
 
-#### CacheService (`services/cache.py`)
+#### CacheService (`services/cache/`)
 
-Redis caching via Upstash REST API:
+Redis caching via Upstash REST API, organized into a modular package:
+
+```
+services/cache/
+├── __init__.py           # Public exports
+├── base.py               # Base cache operations
+├── constants.py          # Key patterns and TTLs
+├── conversation.py       # Conversation-specific caching
+├── history.py            # User history caching
+├── models.py             # Static model/method caching
+└── user.py               # User data caching
+```
 
 ```python
-class CacheService:
+class CacheService(BaseCacheService):
+    # Conversation context (1 hour TTL)
     async def get_conversation_context(conversation_id) -> list[dict] | None
     async def set_conversation_context(conversation_id, messages) -> bool
+    async def append_to_context(conversation_id, message) -> bool
+    
+    # User messages for cumulative sentiment (2 min TTL)
     async def get_user_messages(conversation_id) -> list[str] | None
     async def set_user_messages(conversation_id, messages) -> bool
-    async def invalidate_conversation(conversation_id) -> bool
+    async def append_user_message(conversation_id, message) -> bool
+    
+    # History caching using sorted sets (5 min TTL)
     async def get_user_history(user_id) -> list[dict] | None
     async def add_to_history(user_id, conversation) -> bool
+    async def invalidate_conversation(conversation_id) -> bool
 ```
 
 ### 4.3 Data Layer
@@ -462,9 +480,13 @@ logger.info(
 
 | Endpoint | Purpose | Checks |
 |----------|---------|--------|
-| `/health` | Full health | Database, Cache, LLM availability |
-| `/health/live` | Liveness | Application running |
-| `/health/ready` | Readiness | Database connected |
+| `/` | Root info | Application metadata with environment |
+| `/health` | Full health | Database, Cache with latency metrics |
+| `/health/live` | Liveness | Application running (lightweight) |
+| `/health/ready` | Readiness | Database connected (503 if not) |
+| `/health/info` | System info | Hostname, platform, Python version, uptime |
+| `/health/db` | Database health | PostgreSQL connectivity with latency |
+| `/health/cache` | Cache health | Redis/Upstash connectivity with latency |
 
 ### 8.3 OpenTelemetry
 

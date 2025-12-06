@@ -2,9 +2,10 @@
 
 import asyncio
 import json
-from typing import Annotated
+from collections.abc import AsyncGenerator
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 
 from app.api.deps import CurrentUser, DBSession, check_chat_rate_limit
@@ -41,7 +42,7 @@ async def send_message_stream(
     db: DBSession,
     orchestrator: Annotated[ChatOrchestrator, Depends(get_chat_orchestrator)],
     rate_limiter: Annotated[RateLimitService, Depends(get_rate_limit_service)],
-):
+) -> StreamingResponse:
     """
     Send a chat message and receive a streaming AI response with sentiment analysis.
     
@@ -68,8 +69,19 @@ async def send_message_stream(
             detail=str(e),
         )
 
-    async def event_generator():
+    async def event_generator() -> AsyncGenerator[str, None]:
         try:
+            # Extract model settings
+            model_settings = None
+            if request.model_settings:
+                model_settings = {
+                    "temperature": request.model_settings.temperature,
+                    "max_tokens": request.model_settings.max_tokens,
+                    "top_p": request.model_settings.top_p,
+                    "frequency_penalty": request.model_settings.frequency_penalty,
+                    "presence_penalty": request.model_settings.presence_penalty,
+                }
+            
             async for event in orchestrator.process_chat_stream(
                 db=db,
                 user=current_user,
@@ -78,6 +90,7 @@ async def send_message_stream(
                 provider=request.provider,
                 model=request.model,
                 sentiment_method=request.sentiment_method,
+                model_settings=model_settings,
             ):
                 yield event
         except Exception as e:
@@ -130,6 +143,8 @@ async def get_conversation(
     current_user: CurrentUser,
     db: DBSession,
     orchestrator: Annotated[ChatOrchestrator, Depends(get_chat_orchestrator)],
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
 ) -> ConversationDetail:
     """
     Get a specific conversation with all messages.
@@ -137,7 +152,7 @@ async def get_conversation(
     - **conversation_id**: UUID of the conversation
     """
     conversation = await orchestrator.get_conversation_detail(
-        db, current_user.id, conversation_id
+        db, current_user.id, conversation_id, limit=limit, offset=offset
     )
     
     if not conversation:
@@ -241,7 +256,7 @@ async def rename_conversation(
 )
 async def get_available_models(
     orchestrator: Annotated[ChatOrchestrator, Depends(get_chat_orchestrator)],
-) -> dict:
+) -> dict[str, list[dict[str, Any]]]:
     """Get available LLM models grouped by provider.
     
     Results are cached for 24 hours for improved latency.

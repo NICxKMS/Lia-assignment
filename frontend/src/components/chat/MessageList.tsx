@@ -1,5 +1,5 @@
-import React, { useMemo, useCallback, memo, lazy, Suspense } from 'react'
-import { User, Bot, Copy, Check, ExternalLink, Paperclip } from 'lucide-react'
+import React, { useMemo, useCallback, memo, lazy, Suspense, useState } from 'react'
+import { User, Bot, Copy, Check, ExternalLink, Paperclip, ChevronDown, ChevronUp, Brain } from 'lucide-react'
 import type { ChatMessage } from './ChatInterface'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
@@ -93,6 +93,95 @@ const SentimentDot = memo<{ label: string }>(({ label }) => {
 
 SentimentDot.displayName = 'SentimentDot'
 
+// Simple markdown parser for thoughts - handles basic formatting
+const ThoughtsMarkdown = memo<{ content: string }>(({ content }) => {
+  // Parse basic markdown: **bold**, *italic*, `code`, headers
+  const parseMarkdown = (text: string) => {
+    return text
+      // Code blocks with backticks
+      .replace(/`([^`]+)`/g, '<code class="px-1 py-0.5 rounded bg-muted text-muted-foreground font-mono text-xs">$1</code>')
+      // Bold with **
+      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+      // Italic with *
+      .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+      // Headers (simple h4 for thoughts)
+      .replace(/^### (.+)$/gm, '<span class="font-semibold block mt-2 mb-1">$1</span>')
+      .replace(/^## (.+)$/gm, '<span class="font-semibold block mt-2 mb-1">$1</span>')
+      // Line breaks
+      .replace(/\n/g, '<br/>')
+  }
+  
+  return (
+    <div 
+      className="text-sm text-muted-foreground italic leading-relaxed"
+      dangerouslySetInnerHTML={{ __html: parseMarkdown(content) }}
+    />
+  )
+})
+
+ThoughtsMarkdown.displayName = 'ThoughtsMarkdown'
+
+// Collapsible thoughts section - shows model thinking process
+// Auto-expands during streaming, collapses when done
+const ThoughtsSection = memo<{ thoughts: string[]; isStreaming?: boolean }>(({ thoughts, isStreaming = false }) => {
+  const [isExpanded, setIsExpanded] = useState(false)
+  const [wasStreaming, setWasStreaming] = useState(false)
+  const hasThoughts = thoughts && thoughts.length > 0
+  
+  // Auto-expand when streaming starts, auto-collapse when streaming ends
+  React.useEffect(() => {
+    if (isStreaming && !wasStreaming) {
+      // Streaming just started - expand
+      setIsExpanded(true)
+      setWasStreaming(true)
+    } else if (!isStreaming && wasStreaming) {
+      // Streaming just ended - collapse
+      setIsExpanded(false)
+      setWasStreaming(false)
+    }
+  }, [isStreaming, wasStreaming])
+
+  const combinedThoughts = hasThoughts ? thoughts.join('') : ''
+  
+  // Handle toggle without causing scroll
+  const handleToggle = React.useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsExpanded(prev => !prev)
+  }, [])
+
+  if (!hasThoughts) return null
+  
+  return (
+    <div className="mb-3">
+      <button
+        type="button"
+        onClick={handleToggle}
+        className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors group"
+      >
+        <Brain className={cn("w-4 h-4", isStreaming && "animate-pulse text-primary")} />
+        <span className="font-medium">{isStreaming ? 'Thinking...' : 'Thought process'}</span>
+        {isStreaming && (
+          <span className="w-2 h-2 rounded-full bg-primary animate-pulse" />
+        )}
+        {isExpanded ? (
+          <ChevronUp className="w-4 h-4 opacity-60 group-hover:opacity-100" />
+        ) : (
+          <ChevronDown className="w-4 h-4 opacity-60 group-hover:opacity-100" />
+        )}
+      </button>
+      
+      {isExpanded && (
+        <div className="mt-2 pl-6 border-l-2 border-muted-foreground/20 animate-in slide-in-from-top-2 duration-200">
+          <ThoughtsMarkdown content={combinedThoughts} />
+        </div>
+      )}
+    </div>
+  )
+})
+
+ThoughtsSection.displayName = 'ThoughtsSection'
+
 // Single message component - optimized with CSS transitions
 const MessageItem = memo<{
   msg: ChatMessage
@@ -148,6 +237,11 @@ const MessageItem = memo<{
           
           {/* Message body */}
           <div className="text-foreground leading-7">
+            {/* Thoughts section for assistant messages */}
+            {!isUser && msg.thoughts && msg.thoughts.length > 0 && (
+              <ThoughtsSection thoughts={msg.thoughts} isStreaming={msg.isStreaming} />
+            )}
+            
             {content ? (
               isUser ? (
                 <p className="whitespace-pre-wrap m-0">{content}</p>
@@ -282,7 +376,7 @@ const MessageList = memo<MessageListProps>(({ messages, selectedMessageId, onSel
   }
 
   return (
-    <div className="flex-1 overflow-y-auto p-4 sm:p-6 custom-scrollbar scroll-smooth">
+    <div className="flex-1 overflow-y-auto p-4 sm:p-6 custom-scrollbar">
       <div className="max-w-3xl mx-auto space-y-2">
         {messages.map(msg => (
           <MessageItem

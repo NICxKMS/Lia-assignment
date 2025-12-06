@@ -27,6 +27,7 @@ dependencies = [
     # LLM Providers
     "google-genai>=1.0.0",
     "openai>=1.57.0",
+    "orjson>=3.10.7",
     
     # Sentiment Analysis
     "google-cloud-language>=2.16.0",
@@ -43,11 +44,6 @@ dependencies = [
     
     # Observability
     "structlog>=24.4.0",
-    "opentelemetry-api>=1.28.0",
-    "opentelemetry-sdk>=1.28.0",
-    "opentelemetry-instrumentation-fastapi>=0.49b0",
-    "opentelemetry-instrumentation-sqlalchemy>=0.49b0",
-    "opentelemetry-instrumentation-httpx>=0.49b0",
 ]
 
 [project.optional-dependencies]
@@ -71,6 +67,7 @@ packages = ["app"]
 dev = "app.cli:dev"
 start = "app.cli:start"
 migrate = "app.cli:migrate"
+pytest = "app.cli:pytest"
 
 
 [dependency-groups]

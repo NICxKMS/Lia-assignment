@@ -169,6 +169,10 @@ class TestConversationDetail:
         assert data["id"] == conversation.id
         assert data["title"] == conversation.title
         assert len(data["messages"]) == 4
+        assert data["total_messages"] == 4
+        assert data["has_more"] is False
+        assert data["limit"] == 50
+        assert data["offset"] == 0
         
         # Check message structure
         msg = data["messages"][0]

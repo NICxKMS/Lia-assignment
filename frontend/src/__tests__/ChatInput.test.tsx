@@ -87,7 +87,7 @@ describe('ChatInput', () => {
 
   describe('Input Handling', () => {
     it('calls setInput when typing', async () => {
-      const user = userEvent.setup()
+      const user = userEvent.setup({ delay: null })
       const setInput = vi.fn()
       render(<ChatInput {...defaultProps} setInput={setInput} />)
       
@@ -124,7 +124,7 @@ describe('ChatInput', () => {
     })
 
     it('submits on Enter key without Shift', async () => {
-      const user = userEvent.setup()
+      const user = userEvent.setup({ delay: null })
       const onSubmit = vi.fn((e) => e.preventDefault())
       render(<ChatInput {...defaultProps} input="Hello" onSubmit={onSubmit} />)
       
@@ -135,7 +135,7 @@ describe('ChatInput', () => {
     })
 
     it('does not submit on Shift+Enter', async () => {
-      const user = userEvent.setup()
+      const user = userEvent.setup({ delay: null })
       const onSubmit = vi.fn()
       render(<ChatInput {...defaultProps} input="Hello" onSubmit={onSubmit} />)
       
@@ -146,7 +146,7 @@ describe('ChatInput', () => {
     })
 
     it('does not submit when input is empty', async () => {
-      const user = userEvent.setup()
+      const user = userEvent.setup({ delay: null })
       const onSubmit = vi.fn()
       render(<ChatInput {...defaultProps} input="" onSubmit={onSubmit} />)
       
@@ -202,7 +202,7 @@ describe('ChatInput', () => {
     })
 
     it('calls onStop when stop button is clicked', async () => {
-      const user = userEvent.setup()
+      const user = userEvent.setup({ delay: null })
       const onStop = vi.fn()
       render(<ChatInput {...defaultProps} status="streaming" onStop={onStop} />)
       
@@ -239,7 +239,7 @@ describe('ChatInput', () => {
     })
 
     it('calls onRegenerate when retry button is clicked', async () => {
-      const user = userEvent.setup()
+      const user = userEvent.setup({ delay: null })
       const error = new Error('Something went wrong')
       const onRegenerate = vi.fn()
       render(<ChatInput {...defaultProps} error={error} onRegenerate={onRegenerate} />)
@@ -265,7 +265,7 @@ describe('ChatInput', () => {
     })
 
     it('calls setModel when model changes', async () => {
-      const user = userEvent.setup()
+      const user = userEvent.setup({ delay: null })
       const setModel = vi.fn()
       const setProvider = vi.fn()
       render(<ChatInput {...defaultProps} setModel={setModel} setProvider={setProvider} />)
@@ -277,7 +277,7 @@ describe('ChatInput', () => {
     })
 
     it('sets provider to openai for GPT models', async () => {
-      const user = userEvent.setup()
+      const user = userEvent.setup({ delay: null })
       const setModel = vi.fn()
       const setProvider = vi.fn()
       render(<ChatInput {...defaultProps} setModel={setModel} setProvider={setProvider} />)
@@ -289,7 +289,7 @@ describe('ChatInput', () => {
     })
 
     it('sets provider to gemini for non-GPT models', async () => {
-      const user = userEvent.setup()
+      const user = userEvent.setup({ delay: null })
       const setModel = vi.fn()
       const setProvider = vi.fn()
       render(<ChatInput {...defaultProps} model="gpt-4o" setModel={setModel} setProvider={setProvider} />)

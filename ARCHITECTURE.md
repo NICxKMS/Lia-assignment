@@ -36,7 +36,7 @@
 
 | Feature | Description |
 |---------|-------------|
-| **Multi-Model Chat** | Google Gemini (2.0 Flash, 1.5 Pro) and OpenAI (GPT-4o, GPT-3.5) |
+| **Multi-Model Chat** | Google Gemini (2.5 Flash, 2.5 Pro) and OpenAI (GPT-4o, GPT-4.1) |
 | **Real-time Streaming** | Server-Sent Events (SSE) for token-by-token responses |
 | **Dual Sentiment Analysis** | Per-message and cumulative conversation sentiment |
 | **Three Sentiment Methods** | Structured output, LLM separate calls, Google Cloud NLP |
@@ -600,7 +600,7 @@ Content-Type: application/json
 {
   "message": "Hello, how are you?",
   "provider": "gemini",
-  "model": "gemini-2.0-flash",
+  "model": "gemini-2.5-flash",
   "sentiment_method": "structured",
   "conversation_id": null
 }

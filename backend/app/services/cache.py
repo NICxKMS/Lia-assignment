@@ -94,7 +94,7 @@ class CacheService:
             result = await self._client.get(key)  # type: ignore
             return result if isinstance(result, str) else None
         except Exception as e:
-            logger.warning("Cache get failed", key=key, error=str(e))
+            logger.debug("Cache get failed", key=key, error=str(e))
             return None
 
     async def set(
@@ -114,7 +114,7 @@ class CacheService:
                 await self._client.set(key, value)  # type: ignore
             return True
         except Exception as e:
-            logger.warning("Cache set failed", key=key, error=str(e))
+            logger.debug("Cache set failed", key=key, error=str(e))
             return False
 
     async def delete(self, key: str) -> bool:
@@ -126,7 +126,7 @@ class CacheService:
             await self._client.delete(key)  # type: ignore
             return True
         except Exception as e:
-            logger.warning("Cache delete failed", key=key, error=str(e))
+            logger.debug("Cache delete failed", key=key, error=str(e))
             return False
 
     async def delete_pattern(self, pattern: str) -> int:
@@ -146,7 +146,7 @@ class CacheService:
                 return len(keys)
             return 0
         except Exception as e:
-            logger.warning("Cache delete pattern failed", pattern=pattern, error=str(e))
+            logger.debug("Cache delete pattern failed", pattern=pattern, error=str(e))
             return 0
 
     # ========== High-level operations ==========
@@ -158,7 +158,7 @@ class CacheService:
             try:
                 return json.loads(data)
             except json.JSONDecodeError:
-                logger.warning("Cache JSON decode failed", key=key)
+                logger.debug("Cache JSON decode failed", key=key)
         return None
 
     async def set_json(
@@ -189,7 +189,7 @@ class CacheService:
         
         # Log cache failures but don't propagate
         if isinstance(cache_result, Exception):
-            logger.warning("Write-through cache operation failed", error=str(cache_result))
+            logger.debug("Write-through cache operation failed", error=str(cache_result))
         
         # Re-raise DB exceptions
         if isinstance(db_result, Exception):
@@ -207,7 +207,7 @@ class CacheService:
             result = await self._client.hget(key, field)  # type: ignore
             return result if isinstance(result, str) else None
         except Exception as e:
-            logger.warning("Cache hget failed", key=key, field=field, error=str(e))
+            logger.debug("Cache hget failed", key=key, field=field, error=str(e))
             return None
 
     async def hset(self, key: str, mapping: dict[str, str], ttl: int | None = None) -> bool:
@@ -221,7 +221,7 @@ class CacheService:
                 await self._client.expire(key, ttl)  # type: ignore
             return True
         except Exception as e:
-            logger.warning("Cache hset failed", key=key, error=str(e))
+            logger.debug("Cache hset failed", key=key, error=str(e))
             return False
 
     async def hgetall(self, key: str) -> dict[str, str] | None:
@@ -232,7 +232,7 @@ class CacheService:
             result = await self._client.hgetall(key)  # type: ignore
             return result if result else None
         except Exception as e:
-            logger.warning("Cache hgetall failed", key=key, error=str(e))
+            logger.debug("Cache hgetall failed", key=key, error=str(e))
             return None
 
     # ========== List operations for ordered data ==========
@@ -245,7 +245,7 @@ class CacheService:
             await self._client.lpush(key, *values)  # type: ignore
             return True
         except Exception as e:
-            logger.warning("Cache lpush failed", key=key, error=str(e))
+            logger.debug("Cache lpush failed", key=key, error=str(e))
             return False
 
     async def rpush(self, key: str, *values: str, ttl: int | None = None) -> bool:
@@ -258,7 +258,7 @@ class CacheService:
                 await self._client.expire(key, ttl)  # type: ignore
             return True
         except Exception as e:
-            logger.warning("Cache rpush failed", key=key, error=str(e))
+            logger.debug("Cache rpush failed", key=key, error=str(e))
             return False
 
     async def lrange(self, key: str, start: int, stop: int) -> list[str]:
@@ -269,7 +269,7 @@ class CacheService:
             result = await self._client.lrange(key, start, stop)  # type: ignore
             return result if result else []
         except Exception as e:
-            logger.warning("Cache lrange failed", key=key, error=str(e))
+            logger.debug("Cache lrange failed", key=key, error=str(e))
             return []
 
     async def ltrim(self, key: str, start: int, stop: int) -> bool:
@@ -280,7 +280,7 @@ class CacheService:
             await self._client.ltrim(key, start, stop)  # type: ignore
             return True
         except Exception as e:
-            logger.warning("Cache ltrim failed", key=key, error=str(e))
+            logger.debug("Cache ltrim failed", key=key, error=str(e))
             return False
 
     # ========== Sorted Set operations for ranked/timed data ==========
@@ -296,7 +296,7 @@ class CacheService:
                 await self._client.expire(key, ttl)  # type: ignore
             return True
         except Exception as e:
-            logger.warning("Cache zadd failed", key=key, error=str(e))
+            logger.debug("Cache zadd failed", key=key, error=str(e))
             return False
 
     async def zrange(
@@ -317,7 +317,7 @@ class CacheService:
                 result = await self._client.zrange(key, start, stop, withscores=with_scores)  # type: ignore
             return result if result else []
         except Exception as e:
-            logger.warning("Cache zrange failed", key=key, error=str(e))
+            logger.debug("Cache zrange failed", key=key, error=str(e))
             return []
 
     async def zrem(self, key: str, *members: str) -> bool:
@@ -328,7 +328,7 @@ class CacheService:
             await self._client.zrem(key, *members)  # type: ignore
             return True
         except Exception as e:
-            logger.warning("Cache zrem failed", key=key, error=str(e))
+            logger.debug("Cache zrem failed", key=key, error=str(e))
             return False
 
     # ========== Batch operations for reduced latency ==========
@@ -342,7 +342,7 @@ class CacheService:
             results = await self._client.mget(*keys)  # type: ignore
             return [r if isinstance(r, str) else None for r in results]
         except Exception as e:
-            logger.warning("Cache mget failed", error=str(e))
+            logger.debug("Cache mget failed", error=str(e))
             return [None] * len(keys)
 
     async def mset(self, mapping: dict[str, str], ttl: int | None = None) -> bool:
@@ -352,18 +352,15 @@ class CacheService:
         
         try:
             if ttl:
-                # Use pipeline for atomic multi-set with TTL
-                pipeline_commands = []
-                for key, value in mapping.items():
-                    pipeline_commands.append(["SET", key, value, "EX", str(ttl)])
-                # Execute as individual sets since mset doesn't support TTL
-                for key, value in mapping.items():
-                    await self._client.set(key, value, ex=ttl)  # type: ignore
+                async with self._client.pipeline() as pipe:  # type: ignore
+                    for key, value in mapping.items():
+                        pipe.set(key, value, ex=ttl)
+                    await pipe.execute()
             else:
                 await self._client.mset(mapping)  # type: ignore
             return True
         except Exception as e:
-            logger.warning("Cache mset failed", error=str(e))
+            logger.debug("Cache mset failed", error=str(e))
             return False
 
     # ========== Conversation context caching (using List for O(1) append) ==========
@@ -384,7 +381,7 @@ class CacheService:
         try:
             return [json.loads(msg) for msg in raw_messages]
         except json.JSONDecodeError:
-            logger.warning("Cache context decode failed", conversation_id=conversation_id)
+            logger.debug("Cache context decode failed", conversation_id=conversation_id)
             return None
 
     async def set_conversation_context(
@@ -399,21 +396,22 @@ class CacheService:
             return False
         
         try:
-            # Delete existing and set new (atomic via pipeline would be better)
-            await self._client.delete(key)  # type: ignore
-            if messages:
-                serialized = [json.dumps(msg) for msg in messages]
-                await self._client.rpush(key, *serialized)  # type: ignore
-                await self._client.expire(key, TTL_CONVERSATION_CONTEXT)  # type: ignore
+            async with self._client.pipeline() as pipe:  # type: ignore
+                pipe.delete(key)
+                if messages:
+                    serialized = [json.dumps(msg) for msg in messages]
+                    pipe.rpush(key, *serialized)
+                    pipe.expire(key, TTL_CONVERSATION_CONTEXT)
+                await pipe.execute()
             return True
         except Exception as e:
-            logger.warning("Cache set context failed", error=str(e))
+            logger.debug("Cache set context failed", error=str(e))
             return False
 
     async def append_to_context(
         self,
         conversation_id: str,
-        message: dict[str, str],
+        message: dict[str, str | list[str] | None],
         max_messages: int = 50,
     ) -> bool:
         """Append a single message to context (efficient O(1) operation)."""
@@ -424,13 +422,15 @@ class CacheService:
         
         try:
             serialized = json.dumps(message)
-            await self._client.rpush(key, serialized)  # type: ignore
+            async with self._client.pipeline() as pipe:  # type: ignore
+                pipe.rpush(key, serialized)
             # Trim to keep only last N messages
-            await self._client.ltrim(key, -max_messages, -1)  # type: ignore
-            await self._client.expire(key, TTL_CONVERSATION_CONTEXT)  # type: ignore
+                pipe.ltrim(key, -max_messages, -1)
+                pipe.expire(key, TTL_CONVERSATION_CONTEXT)
+                await pipe.execute()
             return True
         except Exception as e:
-            logger.warning("Cache append context failed", error=str(e))
+            logger.debug("Cache append context failed", error=str(e))
             return False
 
     async def invalidate_conversation(self, conversation_id: str) -> bool:
@@ -445,7 +445,7 @@ class CacheService:
                 await self._client.delete(context_key, detail_key, user_msg_key)  # type: ignore
             return True
         except Exception as e:
-            logger.warning("Cache invalidate conversation failed", error=str(e))
+            logger.debug("Cache invalidate conversation failed", error=str(e))
             return False
 
     # ========== User messages caching (for cumulative sentiment) ==========
@@ -483,13 +483,14 @@ class CacheService:
             return False
         
         try:
-            # Delete existing and set new
-            await self._client.delete(key)  # type: ignore
-            await self._client.rpush(key, *messages)  # type: ignore
-            await self._client.expire(key, TTL_USER_MESSAGES)  # type: ignore
+            async with self._client.pipeline() as pipe:  # type: ignore
+                pipe.delete(key)
+                pipe.rpush(key, *messages)
+                pipe.expire(key, TTL_USER_MESSAGES)
+                await pipe.execute()
             return True
         except Exception as e:
-            logger.warning("Cache set user messages failed", error=str(e))
+            logger.debug("Cache set user messages failed", error=str(e))
             return False
 
     async def append_user_message(
@@ -507,11 +508,13 @@ class CacheService:
             return False
         
         try:
-            await self._client.rpush(key, message)  # type: ignore
-            await self._client.expire(key, TTL_USER_MESSAGES)  # type: ignore
+            async with self._client.pipeline() as pipe:  # type: ignore
+                pipe.rpush(key, message)
+                pipe.expire(key, TTL_USER_MESSAGES)
+                await pipe.execute()
             return True
         except Exception as e:
-            logger.warning("Cache append user message failed", error=str(e))
+            logger.debug("Cache append user message failed", error=str(e))
             return False
 
     # ========== Conversation history caching (using Sorted Set by updated_at) ==========
@@ -532,7 +535,7 @@ class CacheService:
         try:
             return [json.loads(item) for item in raw_items]
         except json.JSONDecodeError:
-            logger.warning("Cache history decode failed", user_id=user_id)
+            logger.debug("Cache history decode failed", user_id=user_id)
             return None
 
     async def set_conversation_history(
@@ -566,7 +569,7 @@ class CacheService:
                 await self._client.expire(key, TTL_USER_CONVERSATIONS)  # type: ignore
             return True
         except Exception as e:
-            logger.warning("Cache set history failed", error=str(e))
+            logger.debug("Cache set history failed", error=str(e))
             return False
 
     async def add_to_history(
@@ -591,7 +594,7 @@ class CacheService:
             await self._client.expire(key, TTL_USER_CONVERSATIONS)  # type: ignore
             return True
         except Exception as e:
-            logger.warning("Cache add to history failed", error=str(e))
+            logger.debug("Cache add to history failed", error=str(e))
             return False
 
     async def remove_from_history(
@@ -618,7 +621,7 @@ class CacheService:
                     continue
             return False
         except Exception as e:
-            logger.warning("Cache remove from history failed", error=str(e))
+            logger.debug("Cache remove from history failed", error=str(e))
             return False
 
     async def invalidate_user_history(self, user_id: int) -> bool:
@@ -631,9 +634,11 @@ class CacheService:
     async def get_conversation_detail(
         self,
         conversation_id: str,
+        *,
+        limit: int = 50,
     ) -> dict[str, Any] | None:
         """Get cached conversation detail."""
-        key = self._make_key(KEY_PREFIX_DETAIL, conversation_id)
+        key = self._make_key(KEY_PREFIX_DETAIL, conversation_id, f"limit:{limit}")
         data = await self.get_json(key)
         return data if isinstance(data, dict) else None
 
@@ -641,9 +646,11 @@ class CacheService:
         self,
         conversation_id: str,
         detail: dict[str, Any],
+        *,
+        limit: int = 50,
     ) -> bool:
         """Cache conversation detail."""
-        key = self._make_key(KEY_PREFIX_DETAIL, conversation_id)
+        key = self._make_key(KEY_PREFIX_DETAIL, conversation_id, f"limit:{limit}")
         return await self.set_json(key, detail, TTL_CONVERSATION_DETAIL)
 
     # ========== User cache operations (using Hash for field access) ==========

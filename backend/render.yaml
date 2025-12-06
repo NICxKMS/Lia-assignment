@@ -51,7 +51,7 @@ services:
       - key: DEFAULT_LLM_PROVIDER
         value: gemini
       - key: DEFAULT_LLM_MODEL
-        value: gemini-2.0-flash
+        value: gemini-2.5-flash
       
       # Upstash Redis
       - key: UPSTASH_REDIS_REST_URL
