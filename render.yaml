@@ -10,39 +10,40 @@ services:
   - type: web
     name: lia-backend
     runtime: python
-    region: singapore  # or frankfurt, singapore, ohio
-    plan: free  # starter, standard, pro for production
-    
+    region: singapore # or frankfurt, singapore, ohio
+    plan: free # starter, standard, pro for production
+    rootDir: backend # Use backend subdirectory as root
+
     # Build configuration
     buildCommand: |
       pip install uv
       uv sync --frozen --no-dev
       uv run alembic upgrade head
-    
+
     # Start command with proper worker configuration
     startCommand: |
       uv run uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 2 --loop uvloop --http httptools
-    
+
     # Health check
     healthCheckPath: /health
-    
+
     # Auto-deploy from main branch
     autoDeploy: true
-    
+
     # Environment variables
     envVars:
       # Database (Supabase PostgreSQL)
       - key: DATABASE_URL
-        sync: false  # Set manually in Render dashboard
-      
+        sync: false # Set manually in Render dashboard
+
       # JWT Authentication
       - key: JWT_SECRET_KEY
-        generateValue: true  # Auto-generate secure secret
+        generateValue: true # Auto-generate secure secret
       - key: JWT_ALGORITHM
         value: HS256
       - key: JWT_ACCESS_TOKEN_EXPIRE_DAYS
         value: "7"
-      
+
       # LLM Providers
       - key: GEMINI_API_KEY
         sync: false
@@ -52,17 +53,17 @@ services:
         value: gemini
       - key: DEFAULT_LLM_MODEL
         value: gemini-2.5-flash
-      
+
       # Upstash Redis
       - key: UPSTASH_REDIS_REST_URL
         sync: false
       - key: UPSTASH_REDIS_REST_TOKEN
         sync: false
-      
+
       # CORS - Frontend URLs
       - key: CORS_ORIGINS
         value: https://lia.nicx.app,http://localhost:5173,http://localhost:3000
-      
+
       # Rate Limiting
       - key: RATE_LIMIT_ENABLED
         value: "true"
@@ -70,7 +71,7 @@ services:
         value: "60"
       - key: RATE_LIMIT_CHAT_REQUESTS_PER_MINUTE
         value: "20"
-      
+
       # Application
       - key: APP_NAME
         value: Lia Chatbot
@@ -78,7 +79,7 @@ services:
         value: "false"
       - key: LOG_LEVEL
         value: INFO
-      
+
       # Python settings
       - key: PYTHONUNBUFFERED
         value: "1"
@@ -91,7 +92,6 @@ services:
     #   maxInstances: 3
     #   targetMemoryPercent: 80
     #   targetCPUPercent: 80
-
 # ==========================================
 # Environment Groups (Optional)
 # ==========================================
