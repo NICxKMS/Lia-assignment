@@ -11,7 +11,7 @@ services:
     name: lia-backend
     runtime: python
     region: singapore  # or frankfurt, singapore, ohio
-    plan: starter  # starter, standard, pro for production
+    plan: free  # starter, standard, pro for production
     
     # Build configuration
     buildCommand: |
