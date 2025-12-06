@@ -53,7 +53,7 @@ htmlcov/
 .mypy_cache/
 
 # Logs
-# *.log
+*.log
 logs/
 
 # OS
