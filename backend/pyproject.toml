@@ -1,6 +1,6 @@
 [project]
 name = "lia-backend"
-version = "2.0.0"
+version = "2.5.0"
 description = "Lia Chatbot Backend - Async FastAPI with Sentiment Analysis & Multi-LLM Support"
 readme = "README.md"
 requires-python = ">=3.11"

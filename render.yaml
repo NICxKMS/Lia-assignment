@@ -2,7 +2,7 @@
 # =====================================
 # This file defines the infrastructure for deploying the Lia Chatbot Backend
 # on Render.com with automatic scaling and health monitoring.
-version: "2.5"
+version: "1"
 projects:
   - name: Nikhil's Projects
     environments:
