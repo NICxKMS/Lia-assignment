@@ -224,6 +224,15 @@ class ErrorResponse(BaseModel):
 # Health Check Schemas
 # ============================================================
 
+class CreatorInfo(BaseModel):
+    """Schema for creator/author information."""
+    
+    name: str
+    github: str
+    linkedin: str
+    email: str
+
+
 class ServiceHealth(BaseModel):
     """Schema for individual service health."""
     
@@ -235,7 +244,9 @@ class ServiceHealth(BaseModel):
 class HealthResponse(BaseModel):
     """Schema for health check response."""
     
+    created_by: CreatorInfo
     status: str = Field(..., pattern=r"^(healthy|unhealthy|degraded)$")
     timestamp: datetime
     version: str
     services: dict[str, ServiceHealth]
+

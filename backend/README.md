@@ -366,7 +366,7 @@ GET /
 ```json
 {
   "name": "Lia Chatbot",
-  "version": "2.0.0",
+  "version": "2.5.1",
   "status": "healthy",
   "environment": "development",
   "timestamp": "2025-12-05T10:00:00Z",
@@ -385,7 +385,7 @@ GET /health
 {
   "status": "healthy",
   "timestamp": "2025-12-05T10:00:00Z",
-  "version": "2.0.0",
+  "version": "2.5.1",
   "services": {
     "database": {
       "status": "healthy",
@@ -428,7 +428,7 @@ GET /health/info
 {
   "application": {
     "name": "Lia Chatbot",
-    "version": "2.0.0",
+    "version": "2.5.1",
     "environment": "development"
   },
   "system": {

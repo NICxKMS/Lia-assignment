@@ -67,7 +67,7 @@ class Settings(BaseSettings):
 
     # ========== Application ==========
     app_name: str = "Lia Chatbot"
-    app_version: str = "2.0.0"
+    app_version: str = "2.5.1"
     environment: Literal["development", "staging", "production"] = Field(
         default="development",
         description="Application environment",

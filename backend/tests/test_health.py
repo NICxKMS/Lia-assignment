@@ -238,9 +238,17 @@ class TestSystemInfoEndpoint:
         
         assert "system" in data
         sys_info = data["system"]
-        assert "hostname" in sys_info
+        # Enhanced system info now has nested structure
         assert "platform" in sys_info
-        assert "python_version" in sys_info
+        assert "cpu" in sys_info
+        assert "python" in sys_info
+        assert "network" in sys_info
+        # Check nested platform info
+        assert "system" in sys_info["platform"]  # OS name
+        # Check nested network info
+        assert "hostname" in sys_info["network"]
+        # Check nested python info
+        assert "version" in sys_info["python"]
 
     @pytest.mark.asyncio
     async def test_info_contains_uptime(self, client: AsyncClient):

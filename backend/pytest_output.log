@@ -1,0 +1,155 @@
+============================= test session starts =============================
+platform win32 -- Python 3.11.14, pytest-9.0.1, pluggy-1.6.0 -- F:\Study\Code\git\Lia-assignment\backend\.venv\Scripts\python.exe
+cachedir: .pytest_cache
+rootdir: F:\Study\Code\git\Lia-assignment\backend
+configfile: pyproject.toml
+plugins: anyio-4.12.0, asyncio-1.3.0, cov-7.0.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 187 items
+
+tests/test_auth.py::TestAuthRegister::test_register_success PASSED       [  0%]
+tests/test_auth.py::TestAuthRegister::test_register_duplicate_email PASSED [  1%]
+tests/test_auth.py::TestAuthRegister::test_register_duplicate_username PASSED [  1%]
+tests/test_auth.py::TestAuthRegister::test_register_invalid_email PASSED [  2%]
+tests/test_auth.py::TestAuthRegister::test_register_short_password PASSED [  2%]
+tests/test_auth.py::TestAuthRegister::test_register_short_username PASSED [  3%]
+tests/test_auth.py::TestAuthRegister::test_register_invalid_username_characters PASSED [  3%]
+tests/test_auth.py::TestAuthRegister::test_register_missing_fields PASSED [  4%]
+tests/test_auth.py::TestAuthLogin::test_login_success PASSED             [  4%]
+tests/test_auth.py::TestAuthLogin::test_login_wrong_password PASSED      [  5%]
+tests/test_auth.py::TestAuthLogin::test_login_nonexistent_user PASSED    [  5%]
+tests/test_auth.py::TestAuthLogin::test_login_invalid_email_format PASSED [  6%]
+tests/test_auth.py::TestAuthMe::test_get_me_success PASSED               [  6%]
+tests/test_auth.py::TestAuthMe::test_get_me_unauthorized PASSED          [  7%]
+tests/test_auth.py::TestAuthMe::test_get_me_invalid_token PASSED         [  8%]
+tests/test_auth.py::TestAuthMe::test_get_me_malformed_header PASSED      [  8%]
+tests/test_auth.py::TestAuthRefresh::test_refresh_token_success PASSED   [  9%]
+tests/test_auth.py::TestAuthRefresh::test_refresh_token_unauthorized PASSED [  9%]
+tests/test_cache.py::TestCacheServiceInit::test_init_without_redis PASSED [ 10%]
+tests/test_cache.py::TestCacheServiceInit::test_make_key PASSED          [ 10%]
+tests/test_cache.py::TestConversationContextCache::test_get_conversation_context_unavailable PASSED [ 11%]
+tests/test_cache.py::TestConversationContextCache::test_set_conversation_context_unavailable PASSED [ 11%]
+tests/test_cache.py::TestConversationContextCache::test_append_to_context_unavailable PASSED [ 12%]
+tests/test_cache.py::TestUserMessagesCache::test_get_user_messages_unavailable PASSED [ 12%]
+tests/test_cache.py::TestUserMessagesCache::test_set_user_messages_unavailable PASSED [ 13%]
+tests/test_cache.py::TestUserMessagesCache::test_set_user_messages_empty_list PASSED [ 13%]
+tests/test_cache.py::TestUserMessagesCache::test_append_user_message_unavailable PASSED [ 14%]
+tests/test_cache.py::TestConversationHistoryCache::test_get_conversation_history_unavailable PASSED [ 14%]
+tests/test_cache.py::TestConversationHistoryCache::test_set_conversation_history_unavailable PASSED [ 15%]
+tests/test_cache.py::TestUserDataCache::test_get_user_data_unavailable PASSED [ 16%]
+tests/test_cache.py::TestUserDataCache::test_set_user_data_unavailable PASSED [ 16%]
+tests/test_cache.py::TestUserDataCache::test_get_user_by_email_unavailable PASSED [ 17%]
+tests/test_cache.py::TestCacheInvalidation::test_invalidate_conversation_unavailable PASSED [ 17%]
+tests/test_cache.py::TestCacheInvalidation::test_invalidate_user_history_unavailable PASSED [ 18%]
+tests/test_cache.py::TestCacheInvalidation::test_invalidate_user_data_unavailable PASSED [ 18%]
+tests/test_cache.py::TestStaticDataCache::test_get_available_models_unavailable PASSED [ 19%]
+tests/test_cache.py::TestStaticDataCache::test_set_available_models_unavailable PASSED [ 19%]
+tests/test_cache.py::TestStaticDataCache::test_get_sentiment_methods_unavailable PASSED [ 20%]
+tests/test_cache.py::TestStaticDataCache::test_set_sentiment_methods_unavailable PASSED [ 20%]
+tests/test_cache.py::TestLowLevelOperations::test_get_unavailable PASSED [ 21%]
+tests/test_cache.py::TestLowLevelOperations::test_set_unavailable PASSED [ 21%]
+tests/test_cache.py::TestLowLevelOperations::test_delete_unavailable PASSED [ 22%]
+tests/test_cache.py::TestLowLevelOperations::test_mget_unavailable PASSED [ 22%]
+tests/test_cache.py::TestLowLevelOperations::test_get_json_unavailable PASSED [ 23%]
+tests/test_cache.py::TestHealthCheck::test_check_health_unavailable PASSED [ 24%]
+tests/test_cache.py::TestCacheKeyPrefixes::test_key_prefixes_defined PASSED [ 24%]
+tests/test_cache.py::TestCacheKeyPrefixes::test_ttl_constants_defined PASSED [ 25%]
+tests/test_chat_api.py::TestChatHistory::test_get_history_empty PASSED   [ 25%]
+tests/test_chat_api.py::TestChatHistory::test_get_history_with_conversations PASSED [ 26%]
+tests/test_chat_api.py::TestChatHistory::test_get_history_unauthorized PASSED [ 26%]
+tests/test_chat_api.py::TestChatHistory::test_get_history_with_limit PASSED [ 27%]
+tests/test_chat_api.py::TestConversationDetail::test_get_conversation_detail PASSED [ 27%]
+tests/test_chat_api.py::TestConversationDetail::test_get_conversation_not_found PASSED [ 28%]
+tests/test_chat_api.py::TestConversationDetail::test_get_conversation_unauthorized PASSED [ 28%]
+tests/test_chat_api.py::TestConversationDetail::test_get_other_users_conversation PASSED [ 29%]
+tests/test_chat_api.py::TestDeleteConversation::test_delete_conversation PASSED [ 29%]
+tests/test_chat_api.py::TestDeleteConversation::test_delete_conversation_not_found PASSED [ 30%]
+tests/test_chat_api.py::TestDeleteConversation::test_delete_conversation_unauthorized PASSED [ 31%]
+tests/test_chat_api.py::TestDeleteConversation::test_delete_all_conversations PASSED [ 31%]
+tests/test_chat_api.py::TestRenameConversation::test_rename_conversation PASSED [ 32%]
+tests/test_chat_api.py::TestRenameConversation::test_rename_conversation_not_found PASSED [ 32%]
+tests/test_chat_api.py::TestRenameConversation::test_rename_conversation_empty_title PASSED [ 33%]
+tests/test_chat_api.py::TestRenameConversation::test_rename_conversation_unauthorized PASSED [ 33%]
+tests/test_chat_api.py::TestChatModels::test_get_models PASSED           [ 34%]
+tests/test_chat_api.py::TestSentimentMethods::test_get_methods PASSED    [ 34%]
+tests/test_chat_api.py::TestChatRequestValidation::test_invalid_provider PASSED [ 35%]
+tests/test_chat_api.py::TestChatRequestValidation::test_invalid_sentiment_method PASSED [ 35%]
+tests/test_chat_api.py::TestChatRequestValidation::test_empty_message PASSED [ 36%]
+tests/test_chat_api.py::TestChatRequestValidation::test_chat_unauthorized PASSED [ 36%]
+tests/test_chat_sentiment.py::TestChatOrchestrator::test_get_or_create_conversation_new PASSED [ 37%]
+tests/test_chat_sentiment.py::TestChatOrchestrator::test_get_or_create_conversation_existing PASSED [ 37%]
+tests/test_chat_sentiment.py::TestChatOrchestrator::test_get_or_create_conversation_wrong_user PASSED [ 38%]
+tests/test_chat_sentiment.py::TestChatOrchestrator::test_load_context_from_db PASSED [ 39%]
+tests/test_chat_sentiment.py::TestChatOrchestrator::test_load_context_from_cache PASSED [ 39%]
+tests/test_chat_sentiment.py::TestIncrementalSentiment::test_cumulative_sentiment_called_for_multiple_messages PASSED [ 40%]
+tests/test_chat_sentiment.py::TestIncrementalSentiment::test_cumulative_sentiment_uses_incremental_update PASSED [ 40%]
+tests/test_chat_sentiment.py::TestConversationHistory::test_get_conversation_history PASSED [ 41%]
+tests/test_chat_sentiment.py::TestConversationHistory::test_get_conversation_history_empty PASSED [ 41%]
+tests/test_chat_sentiment.py::TestConversationDetail::test_get_conversation_detail PASSED [ 42%]
+tests/test_chat_sentiment.py::TestConversationDetail::test_get_conversation_detail_not_found PASSED [ 42%]
+tests/test_chat_sentiment.py::TestConversationDetail::test_get_conversation_detail_wrong_user PASSED [ 43%]
+tests/test_chat_sentiment.py::TestConversationDelete::test_delete_conversation PASSED [ 43%]
+tests/test_chat_sentiment.py::TestConversationDelete::test_delete_conversation_not_found PASSED [ 44%]
+tests/test_chat_sentiment.py::TestConversationDelete::test_delete_all_conversations PASSED [ 44%]
+tests/test_chat_sentiment.py::TestConversationRename::test_rename_conversation PASSED [ 45%]
+tests/test_chat_sentiment.py::TestConversationRename::test_rename_conversation_not_found PASSED [ 45%]
+tests/test_chat_sentiment.py::TestSentimentResult::test_sentiment_result_to_dict PASSED [ 46%]
+tests/test_chat_sentiment.py::TestSentimentResult::test_score_to_label_positive PASSED [ 47%]
+tests/test_chat_sentiment.py::TestSentimentResult::test_score_to_label_negative PASSED [ 47%]
+tests/test_chat_sentiment.py::TestSentimentResult::test_score_to_label_neutral PASSED [ 48%]
+tests/test_chat_sentiment.py::TestSentimentResult::test_neutral_factory PASSED [ 48%]
+tests/test_chat_thinking.py::TestSSEThoughtEvents::test_sse_thought_event_format PASSED [ 49%]
+tests/test_chat_thinking.py::TestSSEThoughtEvents::test_sse_chunk_event_format PASSED [ 49%]
+tests/test_chat_thinking.py::TestChatOrchestratorThinking::test_stream_yields_thought_events PASSED [ 50%]
+tests/test_chat_thinking.py::TestChatOrchestratorThinking::test_thoughts_stored_in_message_model_info PASSED [ 50%]
+tests/test_chat_thinking.py::TestChatOrchestratorThinking::test_cache_includes_thoughts PASSED [ 51%]
+tests/test_chat_thinking.py::TestChatOrchestratorThinking::test_no_thoughts_when_none_generated PASSED [ 51%]
+tests/test_chat_thinking.py::TestStructuredStreamThoughts::test_structured_stream_with_thoughts PASSED [ 52%]
+tests/test_health.py::TestRootEndpoint::test_root_returns_200 PASSED     [ 52%]
+tests/test_health.py::TestRootEndpoint::test_root_contains_app_info PASSED [ 53%]
+tests/test_health.py::TestRootEndpoint::test_root_timestamp_format PASSED [ 54%]
+tests/test_health.py::TestHealthEndpoint::test_health_returns_200 PASSED [ 54%]
+tests/test_health.py::TestHealthEndpoint::test_health_contains_required_fields PASSED [ 55%]
+tests/test_health.py::TestHealthEndpoint::test_health_status_values PASSED [ 55%]
+tests/test_health.py::TestHealthEndpoint::test_health_services_structure PASSED [ 56%]
+tests/test_health.py::TestHealthEndpoint::test_health_cache_service_present PASSED [ 56%]
+tests/test_health.py::TestHealthEndpoint::test_health_latency_tracking PASSED [ 57%]
+tests/test_health.py::TestLivenessProbe::test_liveness_returns_200 PASSED [ 57%]
+tests/test_health.py::TestLivenessProbe::test_liveness_status_ok PASSED  [ 58%]
+tests/test_health.py::TestLivenessProbe::test_liveness_fast_response PASSED [ 58%]
+tests/test_health.py::TestReadinessProbe::test_readiness_returns_200 PASSED [ 59%]
+tests/test_health.py::TestReadinessProbe::test_readiness_status_present PASSED [ 59%]
+tests/test_health.py::TestReadinessProbe::test_readiness_checks_database PASSED [ 60%]
+tests/test_health.py::TestHealthEndpointNoAuth::test_root_no_auth_required PASSED [ 60%]
+tests/test_health.py::TestHealthEndpointNoAuth::test_health_no_auth_required PASSED [ 61%]
+tests/test_health.py::TestHealthEndpointNoAuth::test_liveness_no_auth_required PASSED [ 62%]
+tests/test_health.py::TestHealthEndpointNoAuth::test_readiness_no_auth_required PASSED [ 62%]
+tests/test_health.py::TestSystemInfoEndpoint::test_info_returns_200 PASSED [ 63%]
+tests/test_health.py::TestSystemInfoEndpoint::test_info_contains_application_data PASSED [ 63%]
+tests/test_health.py::TestSystemInfoEndpoint::test_info_contains_system_data FAILED [ 64%]
+
+================================== FAILURES ===================================
+____________ TestSystemInfoEndpoint.test_info_contains_system_data ____________
+tests\test_health.py:241: in test_info_contains_system_data
+    assert "hostname" in sys_info
+E   AssertionError: assert 'hostname' in {'cpu': {'architecture': 'AMD64', 'byte_order': 'little', 'logical_cores': 24, 'physical_cores': 24, ...}, 'environment': {'python_path_entries': 9, 'safe_variables': {'LANG': 'en_US.UTF-8', 'PATH': 'F:\\Study\\Code\\git\\Lia-assignment\\backend\\.venv\\Scripts;C:\\Program Files\\PowerShell\\7;C:\\Program Files\\Eclipse Adoptium\\jdk-21.0.9.10-hotspot\\bin;C:\\WINDOWS\\system32;C:\\WINDOWS;C:\\WINDOWS\\System32\\Wbem;C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\;C:\\WINDOWS\\System32\\OpenSSH\\;C:\\ProgramData\\chocolatey\\bin;C:\\Program Files\\dotnet\\;C:\\Users\\Nicx\\AppData\\Local\\nvm;C:\\nvm4w\\nodejs;C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\;C:\\Program Files\\NVIDIA Corporation\\NVIDIA App\\NvDLISR;C:\\Program Files (x86)\\NVIDIA Corporation\\PhysX\\Common;C:\\MinGW\\bin;C:\\Program Files\\PowerShell\\7\\;C:\\Program Files\\Go\\bin;C:\\Program Files\\Cloudflare\\Cloudflare WARP\\;C:\\Program Files\\nodejs\\;C:\\Users\\Nicx Trial 2\\AppData\\Local\\Programs\\Tesseract-OCR\\;C:\\Program Files\\gs\\gs10.06.0\\bin;C:\\Program Files\\Git\\cmd;C:\\Program Files\\GitHub CLI\\;C:\\Users\\Nicx\\AppData\\Local\\pnpm;C:\\Users\\Nicx\\AppData\\Local...pData\\Local\\GitHubDesktop\\bin;C:\\Users\\Nicx\\go\\bin;C:\\Users\\Nicx\\AppData\\Local\\nvm;C:\\nvm4w\\nodejs;C:\\Users\\Nicx\\AppData\\Local\\Programs\\Microsoft VS Code\\bin;C:\\Users\\Nicx\\.lmstudio\\bin;C:\\Users\\Nicx\\AppData\\Local\\Microsoft\\WinGet\\Links;C:\\Users\\Nicx\\AppData\\Local\\Programs\\Zed\\bin;C:\\Users\\Nicx\\AppData\\Local\\Programs\\Windsurf\\bin;C:\\Users\\Nicx\\go\\bin;C:\\Users\\Nicx\\AppData\\Roaming\\npm;C:\\Users\\Nicx\\AppData\\Local\\Programs\\Antigravity\\bin;C:\\Users\\Nicx\\AppData\\Local\\PowerToys\\DSCModules\\;C:\\Users\\Nicx\\AppData\\Local\\Programs\\cursor\\resources\\app\\bin;c:\\Users\\Nicx\\.antigravity\\extensions\\ms-python.debugpy-2025.14.1-win32-x64\\bundled\\scripts\\noConfigScripts', 'VIRTUAL_ENV': 'F:\\Study\\Code\\git\\Lia-assignment\\backend\\.venv'}, 'variables_count': 75}, 'memory': {'note': 'Detailed memory info not available on Windows'}, 'network': {'fqdn': 'Nicx', 'hostname': 'Nicx', 'ip_addresses': [{'address': 'fe80::8f4e:8bec:441b:1f28', 'family': 'IPv6'}, {'address': 'fe80::5b14:9017:7eb1:9ecb', 'family': 'IPv6'}, {'address': '192.168.0.102', 'family': 'IPv4'}, {'address': '172.23.192.1', 'family': 'IPv4'}]}, ...}
+============================== warnings summary ===============================
+.venv\Lib\site-packages\_pytest\config\__init__.py:1272
+  F:\Study\Code\git\Lia-assignment\backend\.venv\Lib\site-packages\_pytest\config\__init__.py:1272: PytestAssertRewriteWarning: Module already imported so cannot be rewritten; anyio
+    self._mark_plugins_for_rewrite(hook, disable_autoload)
+
+tests/test_chat_thinking.py::TestChatOrchestratorThinking::test_stream_yields_thought_events
+tests/test_chat_thinking.py::TestChatOrchestratorThinking::test_thoughts_stored_in_message_model_info
+tests/test_chat_thinking.py::TestChatOrchestratorThinking::test_cache_includes_thoughts
+tests/test_chat_thinking.py::TestChatOrchestratorThinking::test_no_thoughts_when_none_generated
+tests/test_chat_thinking.py::TestStructuredStreamThoughts::test_structured_stream_with_thoughts
+  F:\Study\Code\git\Lia-assignment\backend\app\services\chat.py:169: RuntimeWarning: coroutine 'AsyncMockMixin._execute_mock_call' was never awaited
+    context.append({"role": "user", "content": message})
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED tests/test_health.py::TestSystemInfoEndpoint::test_info_contains_system_data
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!
+================= 1 failed, 119 passed, 6 warnings in 37.37s ==================
