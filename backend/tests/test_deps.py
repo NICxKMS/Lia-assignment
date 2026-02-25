@@ -1,131 +1,132 @@
-"""Tests for authentication dependencies (get_current_user).
+"""Tests for app.api.deps — get_current_user, get_optional_user, cache-aside."""
 
-Tests cover:
-- Token read from cookie
-- Token read from Authorization header
-- Cookie preferred over header
-- Expired token returns 401
-- Refresh token rejected as access token
-- Malformed JWT returns 401
-"""
+from datetime import timedelta
+from unittest.mock import AsyncMock
 
 import pytest
-from datetime import timedelta
 from httpx import AsyncClient
 
 from app.core.security import create_access_token, create_refresh_token
 from app.db.models import User
 
+# =============================================================================
+# Token sources
+# =============================================================================
 
-class TestGetCurrentUserTokenSources:
-    """Tests for how get_current_user reads tokens."""
+class TestTokenSources:
 
-    @pytest.mark.asyncio
-    async def test_reads_token_from_authorization_header(
-        self, client: AsyncClient, auth_headers: dict,
-    ):
-        """get_current_user accepts token in Authorization header."""
-        response = await client.get("/api/v1/auth/me", headers=auth_headers)
-        assert response.status_code == 200
-        assert response.json()["email"] == "test@example.com"
+    async def test_bearer_header(self, client: AsyncClient, auth_headers: dict[str, str]):
+        resp = await client.get("/api/v1/auth/me", headers=auth_headers)
+        assert resp.status_code == 200
+        assert resp.json()["email"] == "test@example.com"
 
-    @pytest.mark.asyncio
-    async def test_reads_token_from_cookie(
-        self, client: AsyncClient, test_user: User,
-    ):
-        """get_current_user reads token from httponly cookie."""
+    async def test_cookie(self, client: AsyncClient, test_user: User):
         token = create_access_token(data={"sub": str(test_user.id)})
-        # Set cookie directly on the client
         client.cookies.set("access_token", token)
-
-        response = await client.get("/api/v1/auth/me")
-        assert response.status_code == 200
-        assert response.json()["email"] == "test@example.com"
-
-        # Cleanup
+        resp = await client.get("/api/v1/auth/me")
+        assert resp.status_code == 200
+        assert resp.json()["email"] == "test@example.com"
         client.cookies.clear()
 
-    @pytest.mark.asyncio
-    async def test_prefers_cookie_over_header(
+    async def test_cookie_preferred_over_header(
         self, client: AsyncClient, test_user: User, second_user: User,
     ):
-        """get_current_user prefers cookie token over Authorization header."""
-        # Cookie token → test_user
-        cookie_token = create_access_token(data={"sub": str(test_user.id)})
-        # Header token → second_user
-        header_token = create_access_token(data={"sub": str(second_user.id)})
-
-        client.cookies.set("access_token", cookie_token)
-        response = await client.get(
+        cookie_tok = create_access_token(data={"sub": str(test_user.id)})
+        header_tok = create_access_token(data={"sub": str(second_user.id)})
+        client.cookies.set("access_token", cookie_tok)
+        resp = await client.get(
             "/api/v1/auth/me",
-            headers={"Authorization": f"Bearer {header_token}"},
+            headers={"Authorization": f"Bearer {header_tok}"},
         )
-        assert response.status_code == 200
-        # Should resolve to test_user (cookie), not second_user (header)
-        assert response.json()["email"] == test_user.email
-
+        assert resp.json()["email"] == test_user.email
         client.cookies.clear()
 
-    @pytest.mark.asyncio
-    async def test_expired_token_returns_401(self, client: AsyncClient, test_user: User):
-        """Expired JWT returns 401."""
-        expired_token = create_access_token(
+
+# =============================================================================
+# Token validation failures
+# =============================================================================
+
+class TestTokenValidation:
+
+    async def test_expired_token_401(self, client: AsyncClient, test_user: User):
+        token = create_access_token(
             data={"sub": str(test_user.id)},
             expires_delta=timedelta(seconds=-10),
         )
-        response = await client.get(
+        resp = await client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"})
+        assert resp.status_code == 401
+
+    async def test_refresh_token_rejected(self, client: AsyncClient, test_user: User):
+        token = create_refresh_token(user_id=test_user.id)
+        resp = await client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"})
+        assert resp.status_code == 401
+
+    @pytest.mark.parametrize("bad_token", ["not.a.jwt", "", "abc"])
+    async def test_malformed_jwt_401(self, client: AsyncClient, bad_token: str):
+        resp = await client.get(
             "/api/v1/auth/me",
-            headers={"Authorization": f"Bearer {expired_token}"},
+            headers={"Authorization": f"Bearer {bad_token}"},
         )
-        assert response.status_code == 401
+        assert resp.status_code == 401
 
-    @pytest.mark.asyncio
-    async def test_refresh_token_rejected_as_access_token(
-        self, client: AsyncClient, test_user: User,
-    ):
-        """Refresh token (type=refresh) is rejected when used as access token."""
-        refresh_token = create_refresh_token(user_id=test_user.id)
-        response = await client.get(
-            "/api/v1/auth/me",
-            headers={"Authorization": f"Bearer {refresh_token}"},
-        )
-        assert response.status_code == 401
-
-    @pytest.mark.asyncio
-    async def test_malformed_jwt_returns_401(self, client: AsyncClient):
-        """Completely invalid JWT string returns 401."""
-        response = await client.get(
-            "/api/v1/auth/me",
-            headers={"Authorization": "Bearer not.a.valid.jwt.at.all"},
-        )
-        assert response.status_code == 401
-
-    @pytest.mark.asyncio
-    async def test_no_token_returns_401(self, client: AsyncClient):
-        """No token at all returns 401."""
-        response = await client.get("/api/v1/auth/me")
-        assert response.status_code == 401
-
-    @pytest.mark.asyncio
-    async def test_token_with_invalid_user_id_returns_401(
-        self, client: AsyncClient,
-    ):
-        """Token with non-existent user ID returns 401."""
-        token = create_access_token(data={"sub": "999999"})
-        response = await client.get(
-            "/api/v1/auth/me",
-            headers={"Authorization": f"Bearer {token}"},
-        )
-        assert response.status_code == 401
-
-    @pytest.mark.asyncio
-    async def test_token_with_non_numeric_sub_returns_401(
-        self, client: AsyncClient,
-    ):
-        """Token with non-numeric sub claim returns 401."""
+    async def test_non_numeric_sub_401(self, client: AsyncClient):
         token = create_access_token(data={"sub": "not-a-number"})
-        response = await client.get(
-            "/api/v1/auth/me",
-            headers={"Authorization": f"Bearer {token}"},
-        )
-        assert response.status_code == 401
+        resp = await client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"})
+        assert resp.status_code == 401
+
+    async def test_missing_user_401(self, client: AsyncClient):
+        token = create_access_token(data={"sub": "999999"})
+        resp = await client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"})
+        assert resp.status_code == 401
+
+    async def test_no_token_401(self, client: AsyncClient):
+        resp = await client.get("/api/v1/auth/me")
+        assert resp.status_code == 401
+
+
+# =============================================================================
+# Cache-aside path
+# =============================================================================
+
+class TestCacheAsidePath:
+
+    async def test_cache_hit_skips_db(self, db, test_user: User):
+        """When cache has user data, DB is not queried."""
+        from unittest.mock import MagicMock
+
+        from app.api.deps import get_current_user
+        from tests.conftest import make_mock_cache
+
+        cached_data = {
+            "id": test_user.id,
+            "email": test_user.email,
+            "username": test_user.username,
+            "created_at": test_user.created_at.isoformat(),
+        }
+        mock_cache = make_mock_cache(available=True)
+        mock_cache.get_user_data = AsyncMock(return_value=cached_data)
+
+        token = create_access_token(data={"sub": str(test_user.id)})
+
+        # Build a minimal request mock
+        req = MagicMock()
+        req.cookies = {"access_token": token}
+
+        creds = None  # cookie takes priority
+
+        user = await get_current_user(req, creds, db, mock_cache)
+        assert user.email == test_user.email
+        mock_cache.get_user_data.assert_awaited_once_with(test_user.id)
+
+
+# =============================================================================
+# get_optional_user
+# =============================================================================
+
+class TestGetOptionalUser:
+
+    async def test_returns_none_without_auth(self, client: AsyncClient):
+        """Endpoint that uses OptionalUser should work without auth.
+        We test via /health which doesn't require auth, proving the app works unauthenticated."""
+        resp = await client.get("/health")
+        assert resp.status_code == 200

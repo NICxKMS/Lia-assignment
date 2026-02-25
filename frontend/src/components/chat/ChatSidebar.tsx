@@ -106,7 +106,7 @@ const ConversationItem = memo<{
 
 	const title = useMemo(() => {
 		const t = conversation.title || "New conversation";
-		return t.length > 28 ? t.slice(0, 28) + "..." : t;
+		return t.length > 28 ? `${t.slice(0, 28)}...` : t;
 	}, [conversation.title]);
 
 	return (

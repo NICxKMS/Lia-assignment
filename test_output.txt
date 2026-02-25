@@ -1,9 +1,0 @@
-============================= test session starts =============================
-platform win32 -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0
-rootdir: F:\Study\Code\git\Lia-assignment
-plugins: anyio-4.12.1, cov-7.0.0
-collected 0 items
-
-============================ no tests ran in 0.09s ============================
-ERROR: file or directory not found: tests/
-

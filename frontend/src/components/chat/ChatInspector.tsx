@@ -338,7 +338,7 @@ const ChatInspector = memo<ChatInspectorProps>(
 															userMessages[focusedUserMessageIndex]?.id ===
 															payload.id;
 
-														if (!isFocused) return <></>;
+														if (!isFocused) return ;
 
 														return (
 															<circle
