@@ -55,9 +55,14 @@ DEFAULT_SYSTEM_PROMPT = """You are Lia, a helpful and friendly AI assistant crea
 - Use light humor when appropriate, but stay helpful"""
 
 
+_sse_event_id = 0
+
+
 def sse_event(event_type: str, data: dict[str, Any]) -> str:
-    """Format a Server-Sent Event."""
-    return f"event: {event_type}\ndata: {orjson.dumps(data).decode()}\n\n"
+    """Format a Server-Sent Event with auto-incrementing ID."""
+    global _sse_event_id  # noqa: PLW0603
+    _sse_event_id += 1
+    return f"id: {_sse_event_id}\nevent: {event_type}\ndata: {orjson.dumps(data).decode()}\n\n"
 
 
 def _create_tracked_task(
@@ -91,6 +96,17 @@ def _sentiment_stream_payload(result: SentimentResult | None) -> dict[str, Any] 
     if result.summary:
         payload["summary"] = result.summary
     return payload
+
+
+class _StreamResult:
+    """Mutable container for accumulated streaming output."""
+
+    __slots__ = ("full_response", "thoughts", "message_sentiment")
+
+    def __init__(self) -> None:
+        self.full_response: str = ""
+        self.thoughts: list[str] = []
+        self.message_sentiment: SentimentResult | None = None
 
 
 class ChatOrchestrator:
@@ -129,7 +145,10 @@ class ChatOrchestrator:
         - event: error     -> { message }
         """
         start_time = time.monotonic()
-        
+
+        # Track background tasks for cancellation on disconnect
+        _bg_tasks: list[asyncio.Task] = []
+
         # Extract model settings with defaults and normalize types
         raw_temperature = model_settings.get("temperature", 0.7) if model_settings else 0.7
         temperature = float(raw_temperature)
@@ -150,22 +169,10 @@ class ChatOrchestrator:
 
             # Auto-generate title from first message if new conversation
             if not context and not conversation.title:
-                title = message[:50].strip()
-                if len(message) > 50:
-                    title = title.rsplit(" ", 1)[0] + "..."
-                conversation.title = title
+                conversation.title = self._generate_title(message)
 
-            # Save user message
-            user_message = Message(
-                conversation_id=conversation.id,
-                role="user",
-                content=message,
-            )
-            db.add(user_message)
-            await db.flush()
-            await db.refresh(user_message)
-
-            # Add to context
+            # Persist user message
+            user_message = await self._persist_user_message(db, conversation, message)
             context.append({"role": "user", "content": message})
 
             # Send start event
@@ -174,164 +181,72 @@ class ChatOrchestrator:
                 "message_id": user_message.id,
             })
 
-            # Get LLM adapter
             adapter = self.llm_service.get_adapter(provider)
-            full_response = ""
-            thoughts: list[str] = []  # Track thinking content
-            message_sentiment: SentimentResult | None = None
+            stream_result = _StreamResult()
+            current_state = CumulativeState.from_dict(conversation.sentiment_state)
+
+            # Launch parallel sentiment tasks before streaming (regular mode only)
             sentiment_task: asyncio.Task[SentimentResult] | None = None
             cumulative_task: asyncio.Task[tuple[SentimentResult, CumulativeState]] | None = None
 
-            # Get current cumulative state for parallelization decision
-            current_state = CumulativeState.from_dict(conversation.sentiment_state)
-
-            if sentiment_method == "structured":
-                # Structured: Single LLM call with response + sentiment
-                async for struct_chunk in adapter.generate_structured_stream(
-                    messages=context,
-                    model=model,
-                    system_prompt=DEFAULT_SYSTEM_PROMPT,
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                ):
-                    if struct_chunk.content:
-                        # Check if this is a thought chunk
-                        if hasattr(struct_chunk, 'is_thought') and struct_chunk.is_thought:
-                            thoughts.append(struct_chunk.content)
-                            yield sse_event("thought", {"content": struct_chunk.content})
-                        else:
-                            full_response += struct_chunk.content
-                            yield sse_event("chunk", {"content": struct_chunk.content})
-
-                    if struct_chunk.is_final:
-                        message_sentiment = SentimentResult(
-                            score=struct_chunk.sentiment_score or 0.0,
-                            label=struct_chunk.sentiment_label or "Neutral",
-                            emotion=struct_chunk.sentiment_emotion,
-                            source="structured",
-                            details={"provider": provider, "model": model},
-                        )
-                        break
-            else:
-                # OPTIMIZATION: Start sentiment analysis immediately in parallel
-                # with streaming response to reduce total latency
+            if sentiment_method != "structured":
                 sentiment_task = _create_tracked_task(
                     self.sentiment_service.analyze(
-                        message,
-                        sentiment_method,
-                        provider,
-                        model,
+                        message, sentiment_method, provider, model,
                     ),
                     "sentiment:message",
                 )
-                
-                # OPTIMIZATION: For subsequent messages (count > 0), start cumulative
-                # sentiment in parallel - only for Gemini (incremental API).
-                # For non-Gemini providers we wait for per-message sentiment so
-                # the weighted average can include it.
+                _bg_tasks.append(sentiment_task)
                 if provider == "gemini" and current_state.count > 0:
                     cumulative_task = _create_tracked_task(
                         self.sentiment_service.update_cumulative(
                             new_message=message,
                             current_state=current_state,
-                            message_sentiment=None,  # Not needed for count > 0
+                            message_sentiment=None,
                             provider=provider,
                             model=sentiment_model,
                         ),
                         "sentiment:cumulative",
                     )
-                
-                # Regular streaming response with thought detection
-                async for chunk in adapter.generate_stream(
-                    messages=context,
-                    model=model,
-                    system_prompt=DEFAULT_SYSTEM_PROMPT,
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                ):
-                    if chunk.content:
-                        if chunk.is_thought:
-                            thoughts.append(chunk.content)
-                            yield sse_event("thought", {"content": chunk.content})
-                        else:
-                            full_response += chunk.content
-                            yield sse_event("chunk", {"content": chunk.content})
-                    if chunk.is_final:
-                        break
+                    _bg_tasks.append(cumulative_task)
 
-                # Await sentiment result (should already be done or nearly done)
-                try:
-                    message_sentiment = await sentiment_task
-                except Exception:  # noqa: BLE001
-                    message_sentiment = SentimentResult.neutral()
+            # Stream LLM response
+            async for event in self._stream_llm_response(
+                adapter, context, model, provider, temperature, max_tokens,
+                structured=(sentiment_method == "structured"),
+                result=stream_result,
+            ):
+                yield event
 
-            # INCREMENTAL CUMULATIVE SENTIMENT
-            # Instead of re-analyzing all messages, update a rolling summary - O(1) per message
-            cumulative_sentiment: SentimentResult | None = None
-            new_state: CumulativeState
-            
-            if cumulative_task:
-                # Await parallel cumulative task (for count > 0)
-                try:
-                    cumulative_sentiment, new_state = await cumulative_task
-                except Exception:  # noqa: BLE001
-                    # Fallback: use weighted average if parallel task failed
-                    cumulative_sentiment, new_state = await self.sentiment_service.update_cumulative(
-                        new_message=message,
-                        current_state=current_state,
-                        message_sentiment=message_sentiment,
-                        provider=provider,
-                        model=sentiment_model,
-                    )
-            else:
-                # Sequential for first message (count == 0) - needs message_sentiment
-                cumulative_sentiment, new_state = await self.sentiment_service.update_cumulative(
-                    new_message=message,
+            # Complete sentiment analysis (await parallel tasks + cumulative)
+            message_sentiment, cumulative_sentiment, new_state = (
+                await self._run_sentiment_analysis(
+                    message=message,
                     current_state=current_state,
-                    message_sentiment=message_sentiment,
                     provider=provider,
-                    model=sentiment_model,
+                    sentiment_model=sentiment_model,
+                    structured_sentiment=stream_result.message_sentiment,
+                    sentiment_task=sentiment_task,
+                    cumulative_task=cumulative_task,
                 )
-            
-            # Persist the updated sentiment state to the conversation
-            conversation.sentiment_state = new_state.to_dict()
+            )
 
-            # Update user message with sentiment data
+            # Persist sentiment state
+            conversation.sentiment_state = new_state.to_dict()
             user_message.sentiment_data = {
                 "message": message_sentiment.to_dict() if message_sentiment else None,
                 "cumulative": cumulative_sentiment.to_dict() if cumulative_sentiment else None,
             }
 
-            # Save assistant message
-            assistant_message = Message(
-                conversation_id=conversation.id,
-                role="assistant",
-                content=full_response,
-                model_info={
-                    "provider": provider,
-                    "model": model,
-                    "thoughts": thoughts if thoughts else None,
-                },
+            await self._persist_assistant_message(
+                db, conversation, stream_result.full_response,
+                stream_result.thoughts, provider, model,
             )
-            db.add(assistant_message)
-            await db.flush()
 
-            # Update caches: context and invalidate history cache
-            if self.cache_service.is_available:
-                await asyncio.gather(
-                    self.cache_service.append_to_context(
-                        conversation.id, {"role": "user", "content": message}
-                    ),
-                    self.cache_service.append_to_context(
-                        conversation.id, {
-                            "role": "assistant",
-                            "content": full_response,
-                            "thoughts": thoughts if thoughts else None,
-                        }
-                    ),
-                    self.cache_service.invalidate_user_history(user.id),
-                    return_exceptions=True,
-                )
+            await self._update_caches(
+                user.id, conversation.id, message,
+                stream_result.full_response, stream_result.thoughts,
+            )
 
             # Log completion with timing
             duration_ms = int((time.monotonic() - start_time) * 1000)
@@ -340,7 +255,7 @@ class ChatOrchestrator:
                 user_id=user.id,
                 conversation_id=conversation.id,
                 duration_ms=duration_ms,
-                response_len=len(full_response),
+                response_len=len(stream_result.full_response),
             )
 
             # Send sentiment event
@@ -354,7 +269,195 @@ class ChatOrchestrator:
 
         except Exception as e:
             logger.error("Chat stream error", user_id=user.id, error=str(e))
-            yield sse_event("error", {"message": str(e)})
+            yield sse_event("error", {"message": "An error occurred processing your request."})
+        finally:
+            for t in _bg_tasks:
+                if not t.done():
+                    t.cancel()
+
+    # -- Extracted private helpers ----------------------------------------
+
+    @staticmethod
+    def _generate_title(message: str) -> str:
+        """Generate a conversation title from the first message."""
+        title = message[:50].strip()
+        if len(message) > 50:
+            title = title.rsplit(" ", 1)[0] + "..."
+        return title
+
+    async def _persist_user_message(
+        self,
+        db: AsyncSession,
+        conversation: Conversation,
+        content: str,
+    ) -> Message:
+        """Create and persist a user message."""
+        user_message = Message(
+            conversation_id=conversation.id,
+            role="user",
+            content=content,
+        )
+        db.add(user_message)
+        await db.flush()
+        await db.refresh(user_message)
+        return user_message
+
+    async def _stream_llm_response(
+        self,
+        adapter: Any,
+        context: list[dict[str, str]],
+        model: str,
+        provider: str,
+        temperature: float,
+        max_tokens: int,
+        *,
+        structured: bool,
+        result: _StreamResult,
+    ) -> AsyncIterator[str]:
+        """Stream LLM response, yielding SSE chunk/thought events.
+
+        Populates *result* with accumulated full_response, thoughts,
+        and (for structured mode) inline message_sentiment.
+        """
+        if structured:
+            async for chunk in adapter.generate_structured_stream(
+                messages=context,
+                model=model,
+                system_prompt=DEFAULT_SYSTEM_PROMPT,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            ):
+                if chunk.content:
+                    if hasattr(chunk, 'is_thought') and chunk.is_thought:
+                        result.thoughts.append(chunk.content)
+                        yield sse_event("thought", {"content": chunk.content})
+                    else:
+                        result.full_response += chunk.content
+                        yield sse_event("chunk", {"content": chunk.content})
+                if chunk.is_final:
+                    result.message_sentiment = SentimentResult(
+                        score=chunk.sentiment_score or 0.0,
+                        label=chunk.sentiment_label or "Neutral",
+                        emotion=chunk.sentiment_emotion,
+                        source="structured",
+                        details={"provider": provider, "model": model},
+                    )
+                    break
+        else:
+            async for chunk in adapter.generate_stream(
+                messages=context,
+                model=model,
+                system_prompt=DEFAULT_SYSTEM_PROMPT,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            ):
+                if chunk.content:
+                    if chunk.is_thought:
+                        result.thoughts.append(chunk.content)
+                        yield sse_event("thought", {"content": chunk.content})
+                    else:
+                        result.full_response += chunk.content
+                        yield sse_event("chunk", {"content": chunk.content})
+                if chunk.is_final:
+                    break
+
+    async def _run_sentiment_analysis(
+        self,
+        *,
+        message: str,
+        current_state: CumulativeState,
+        provider: str,
+        sentiment_model: str,
+        structured_sentiment: SentimentResult | None = None,
+        sentiment_task: asyncio.Task[SentimentResult] | None = None,
+        cumulative_task: asyncio.Task[tuple[SentimentResult, CumulativeState]] | None = None,
+    ) -> tuple[SentimentResult | None, SentimentResult | None, CumulativeState]:
+        """Complete sentiment analysis: await parallel tasks and compute cumulative state.
+
+        Returns (message_sentiment, cumulative_sentiment, new_state).
+        """
+        # Resolve per-message sentiment
+        message_sentiment: SentimentResult | None = structured_sentiment
+        if sentiment_task is not None:
+            try:
+                message_sentiment = await sentiment_task
+            except Exception:  # noqa: BLE001
+                message_sentiment = SentimentResult.neutral()
+
+        # Resolve cumulative sentiment
+        cumulative_sentiment: SentimentResult | None = None
+        new_state: CumulativeState
+
+        if cumulative_task:
+            try:
+                cumulative_sentiment, new_state = await cumulative_task
+            except Exception:  # noqa: BLE001
+                cumulative_sentiment, new_state = await self.sentiment_service.update_cumulative(
+                    new_message=message,
+                    current_state=current_state,
+                    message_sentiment=message_sentiment,
+                    provider=provider,
+                    model=sentiment_model,
+                )
+        else:
+            cumulative_sentiment, new_state = await self.sentiment_service.update_cumulative(
+                new_message=message,
+                current_state=current_state,
+                message_sentiment=message_sentiment,
+                provider=provider,
+                model=sentiment_model,
+            )
+
+        return message_sentiment, cumulative_sentiment, new_state
+
+    async def _persist_assistant_message(
+        self,
+        db: AsyncSession,
+        conversation: Conversation,
+        content: str,
+        thoughts: list[str],
+        provider: str,
+        model: str,
+    ) -> Message:
+        """Create and persist an assistant message."""
+        assistant_message = Message(
+            conversation_id=conversation.id,
+            role="assistant",
+            content=content,
+            model_info={
+                "provider": provider,
+                "model": model,
+                "thoughts": thoughts if thoughts else None,
+            },
+        )
+        db.add(assistant_message)
+        await db.flush()
+        return assistant_message
+
+    async def _update_caches(
+        self,
+        user_id: int,
+        conversation_id: str,
+        message: str,
+        response: str,
+        thoughts: list[str],
+    ) -> None:
+        """Update context cache and invalidate history cache."""
+        if self.cache_service.is_available:
+            await asyncio.gather(
+                self.cache_service.append_to_context(
+                    conversation_id, {"role": "user", "content": message}
+                ),
+                self.cache_service.append_to_context(
+                    conversation_id, {
+                        "role": "assistant",
+                        "content": response,
+                        "thoughts": thoughts if thoughts else None,
+                    }
+                ),
+                self.cache_service.invalidate_user_history(user_id),
+                return_exceptions=True,
+            )
 
     async def _get_or_create_conversation(
         self,
@@ -409,15 +512,18 @@ class ChatOrchestrator:
         self,
         db: AsyncSession,
         user_id: int,
+        *,
         limit: int = 20,
+        offset: int = 0,
     ) -> list[dict[str, Any]]:
         """Get user's conversation history with summaries.
         
         Uses cache-aside pattern: check cache first, fallback to DB.
         Write-through: populate cache on miss in parallel with response.
+        Supports pagination via offset/limit.
         """
-        # Try cache first (Sorted Set - O(log N) range query)
-        if self.cache_service.is_available:
+        # Try cache first (Sorted Set - O(log N) range query) — only for first page
+        if offset == 0 and self.cache_service.is_available:
             cached = await self.cache_service.get_conversation_history(user_id, limit)
             if cached is not None:
                 return cached
@@ -435,6 +541,7 @@ class ChatOrchestrator:
             .where(Conversation.user_id == user_id)
             .group_by(Conversation.id)
             .order_by(Conversation.updated_at.desc())
+            .offset(offset)
             .limit(limit)
         )
         
@@ -449,9 +556,8 @@ class ChatOrchestrator:
             for row in result.all()
         ]
         
-        # Write-through: populate cache asynchronously (don't block response)
-        if self.cache_service.is_available:
-            # Fire and forget - cache population shouldn't delay response
+        # Write-through: populate cache asynchronously (first page only)
+        if offset == 0 and self.cache_service.is_available:
             _create_tracked_task(
                 self.cache_service.set_conversation_history(user_id, limit, conversations),
                 "cache:set_conversation_history",
@@ -652,15 +758,10 @@ class ChatOrchestrator:
         return True
 
 
-# Global chat orchestrator instance
-_chat_orchestrator: ChatOrchestrator | None = None
+from functools import lru_cache
 
 
+@lru_cache
 def get_chat_orchestrator() -> ChatOrchestrator:
-    """Get or create the global chat orchestrator instance."""
-    global _chat_orchestrator
-    
-    if _chat_orchestrator is None:
-        _chat_orchestrator = ChatOrchestrator()
-    
-    return _chat_orchestrator
+    """Get or create the chat orchestrator instance (cached)."""
+    return ChatOrchestrator()

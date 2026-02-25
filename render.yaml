@@ -19,7 +19,8 @@ projects:
             buildCommand: |
               pip install uv
               uv sync --frozen --no-dev
-              uv run alembic upgrade head
+            # Run migrations before deploy (after build, before start)
+            preDeployCommand: uv run alembic upgrade head
             # Start command with proper worker configuration
             startCommand: uv run uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 2 --loop uvloop --http httptools
             healthCheckPath: /health
@@ -56,9 +57,9 @@ projects:
                 sync: false
               - key: UPSTASH_REDIS_REST_TOKEN
                 sync: false
-              # CORS - Frontend URLs
+              # CORS - Frontend URLs (localhost only in .env for local dev)
               - key: CORS_ORIGINS
-                value: https://lia.nicx.app,http://localhost:5173,http://localhost:3000
+                value: https://lia.nicx.app
               # Rate Limiting
               - key: RATE_LIMIT_ENABLED
                 value: "true"
@@ -78,3 +79,6 @@ projects:
                 value: "1"
               - key: PYTHONDONTWRITEBYTECODE
                 value: "1"
+              # Deployment environment
+              - key: ENVIRONMENT
+                value: production

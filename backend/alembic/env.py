@@ -3,7 +3,7 @@
 import asyncio
 from logging.config import fileConfig
 
-from sqlalchemy import pool
+from sqlalchemy import pool, text
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
@@ -29,7 +29,7 @@ settings = get_settings()
 
 def get_url() -> str:
     """Get database URL from settings."""
-    return settings.neon_database_url
+    return settings.processed_database_url
 
 
 def run_migrations_offline() -> None:
@@ -73,7 +73,13 @@ async def run_async_migrations() -> None:
     )
 
     async with connectable.connect() as connection:
-        await connection.run_sync(do_run_migrations)
+        # Prevent concurrent migration runs
+        await connection.execute(text("SELECT pg_advisory_lock(12345)"))
+        try:
+            await connection.run_sync(do_run_migrations)
+            await connection.commit()
+        finally:
+            await connection.execute(text("SELECT pg_advisory_unlock(12345)"))
 
     await connectable.dispose()
 

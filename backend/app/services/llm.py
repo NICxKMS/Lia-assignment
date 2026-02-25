@@ -124,6 +124,23 @@ class LLMAdapter(ABC):
         ...
 
     @abstractmethod
+    async def generate_content(
+        self,
+        prompt: str,
+        model: str | None = None,
+    ) -> str:
+        """Generate a non-streaming response from the LLM.
+
+        Args:
+            prompt: The prompt string to send.
+            model: Optional model override; uses provider default if None.
+
+        Returns:
+            The text response as a string.
+        """
+        ...
+
+    @abstractmethod
     def get_available_models(self) -> list[ModelInfo]:
         """Return list of available models for this provider."""
         ...
@@ -220,6 +237,49 @@ class GeminiAdapter(LLMAdapter):
 
     def get_available_models(self) -> list[ModelInfo]:
         return self.MODELS
+
+    async def generate_content(
+        self,
+        prompt: str,
+        model: str | None = None,
+    ) -> str:
+        if not self.api_key:
+            raise LLMProviderError("gemini", "API key not configured")
+
+        resolved_model = model or self.MODELS[0].id
+
+        try:
+            contents = [
+                genai_types.Content(
+                    role="user",
+                    parts=[genai_types.Part.from_text(text=prompt)],
+                )
+            ]
+            config = genai_types.GenerateContentConfig(
+                temperature=0.1,
+                thinking_config=genai_types.ThinkingConfig(
+                    thinking_budget=-1,
+                ),
+            )
+
+            response = await _run_with_retry(
+                lambda: self.client.aio.models.generate_content(
+                    model=resolved_model,
+                    contents=contents,
+                    config=config,
+                )
+            )
+
+            return response.text or ""
+        except ResourceExhausted as e:
+            raise LLMProviderError("gemini", "Rate limit exceeded") from e
+        except InvalidArgument as e:
+            raise LLMProviderError("gemini", f"Invalid request: {e}") from e
+        except LLMProviderError:
+            raise
+        except Exception as e:
+            logger.error("Gemini generate_content error", error=str(e), model=resolved_model)
+            raise LLMProviderError("gemini", str(e))
 
     def _to_contents(
         self,
@@ -425,6 +485,34 @@ class OpenAIAdapter(LLMAdapter):
     def get_available_models(self) -> list[ModelInfo]:
         return self.MODELS
 
+    async def generate_content(
+        self,
+        prompt: str,
+        model: str | None = None,
+    ) -> str:
+        if not self.api_key:
+            raise LLMProviderError("openai", "API key not configured")
+
+        resolved_model = model or self.MODELS[0].id
+
+        try:
+            response = await _run_with_retry(
+                lambda: self.client.chat.completions.create(
+                    model=resolved_model,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.1,
+                )
+            )
+
+            return response.choices[0].message.content or ""
+        except (RateLimitError, APITimeoutError, APIError) as e:
+            raise LLMProviderError("openai", str(e)) from e
+        except LLMProviderError:
+            raise
+        except Exception as e:
+            logger.error("OpenAI generate_content error", error=str(e), model=resolved_model)
+            raise LLMProviderError("openai", str(e))
+
     def _to_messages(
         self,
         messages: list[dict[str, str]],
@@ -579,6 +667,19 @@ class LLMService:
     def __init__(self) -> None:
         self._adapters: dict[str, LLMAdapter] = {}
 
+    async def close(self) -> None:
+        """Close all adapter HTTP clients."""
+        for name, adapter in self._adapters.items():
+            client = getattr(adapter, "client", None)
+            if client is None:
+                continue
+            close_fn = getattr(client, "close", getattr(client, "aclose", None))
+            if close_fn is not None:
+                try:
+                    await close_fn()
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("Error closing adapter client", adapter=name, error=str(exc))
+
     def get_adapter(self, provider: str) -> LLMAdapter:
         """Get or create an adapter for the specified provider."""
         if provider not in self._adapters:
@@ -632,15 +733,10 @@ class LLMService:
         return ["gemini", "openai"]
 
 
-# Global LLM service instance
-_llm_service: LLMService | None = None
+from functools import lru_cache
 
 
+@lru_cache
 def get_llm_service() -> LLMService:
-    """Get or create the global LLM service instance."""
-    global _llm_service
-    
-    if _llm_service is None:
-        _llm_service = LLMService()
-    
-    return _llm_service
+    """Get or create the LLM service instance (cached)."""
+    return LLMService()

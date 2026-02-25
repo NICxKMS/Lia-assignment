@@ -1,6 +1,6 @@
 [project]
 name = "lia-backend"
-version = "2.5.0"
+version = "2.5.1"
 description = "Lia Chatbot Backend - Async FastAPI with Sentiment Analysis & Multi-LLM Support"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -12,36 +12,27 @@ dependencies = [
     # Web Framework
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.32.0",
-    "sse-starlette>=2.1.0",
-    
     # Database
     "sqlalchemy[asyncio]>=2.0.36",
     "asyncpg>=0.30.0",
     "alembic>=1.14.0",
-    
     # Validation & Settings
     "pydantic>=2.10.0",
     "pydantic-settings>=2.6.0",
     "email-validator>=2.2.0",
-    
     # LLM Providers
     "google-genai>=1.0.0",
     "openai>=1.57.0",
     "orjson>=3.10.7",
-    
     # Sentiment Analysis
     "google-cloud-language>=2.16.0",
-    
     # Caching (Upstash via REST API)
     "upstash-redis>=1.1.0",
-    
     # Security
-    "python-jose[cryptography]>=3.3.0",
+    "PyJWT>=2.8.0",
     "passlib[bcrypt]>=1.7.4",
-    
     # HTTP Client
     "httpx>=0.28.0",
-    
     # Observability
     "structlog>=24.4.0",
 ]

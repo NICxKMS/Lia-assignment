@@ -29,17 +29,19 @@ class TestSSEThoughtEvents:
         """Test thought SSE event format."""
         event = sse_event("thought", {"content": "Let me think..."})
         
-        assert event.startswith("event: thought\n")
+        assert "event: thought\n" in event
         assert '"content": "Let me think..."' in event or '"content":"Let me think..."' in event
         assert event.endswith("\n\n")
+        assert event.startswith("id: ")
 
     def test_sse_chunk_event_format(self):
         """Test regular chunk SSE event format."""
         event = sse_event("chunk", {"content": "Hello"})
         
-        assert event.startswith("event: chunk\n")
+        assert "event: chunk\n" in event
         assert '"content"' in event
         assert event.endswith("\n\n")
+        assert event.startswith("id: ")
 
 
 class TestChatOrchestratorThinking:
@@ -133,15 +135,17 @@ class TestChatOrchestratorThinking:
         # Parse events
         event_types = []
         for e in events:
-            if e.startswith("event: "):
-                event_type = e.split("\n")[0].replace("event: ", "")
-                event_types.append(event_type)
+            if "event: " in e:
+                for line in e.split("\n"):
+                    if line.startswith("event: "):
+                        event_types.append(line.replace("event: ", ""))
+                        break
         
         # Should have thought event
         assert "thought" in event_types
         
         # Find thought event and verify content
-        thought_event = next((e for e in events if e.startswith("event: thought")), None)
+        thought_event = next((e for e in events if "event: thought" in e), None)
         assert thought_event is not None
         assert "Analyzing the question" in thought_event
 
@@ -404,5 +408,5 @@ class TestStructuredStreamThoughts:
             events.append(event)
         
         # Should have thought event in structured mode too
-        thought_events = [e for e in events if e.startswith("event: thought")]
+        thought_events = [e for e in events if "event: thought" in e]
         assert len(thought_events) >= 1

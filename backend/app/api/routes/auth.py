@@ -4,16 +4,21 @@ import asyncio
 from datetime import datetime, timedelta
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi.responses import JSONResponse
+from sqlalchemy import or_, select
+from sqlalchemy.exc import IntegrityError
 
 from app.api.deps import CurrentUser, DBSession
 from app.api.schemas import TokenResponse, UserCreate, UserLogin, UserResponse
 from app.core.config import get_settings
+from app.core.exceptions import RateLimitError
 from app.core.logging import get_logger
 from app.core.security import create_access_token, get_password_hash, verify_password
+from app.core.tasks import create_background_task
 from app.db.models import User
 from app.services.cache import CacheService, get_cache_service
+from app.services.rate_limit import RateLimitService, get_rate_limit_service
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -30,8 +35,10 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 )
 async def register(
     user_data: UserCreate,
+    request: Request,
     db: DBSession,
     cache: Annotated[CacheService, Depends(get_cache_service)],
+    rate_limiter: Annotated[RateLimitService, Depends(get_rate_limit_service)],
 ) -> TokenResponse:
     """
     Register a new user account.
@@ -43,23 +50,27 @@ async def register(
     Uses write-through caching: DB + Cache writes in parallel.
     """
     settings = get_settings()
-    
+
+    # Rate limit auth attempts
+    client_ip = request.client.host if request.client else "unknown"
+    allowed, _ = await rate_limiter.check_auth_limit(f"ip:{client_ip}")
+    if not allowed:
+        raise RateLimitError()
+
     # Start password hashing in parallel (CPU-bound, safe to run concurrently)
     password_hash_task = asyncio.create_task(get_password_hash(user_data.password))
     
-    # Run DB queries sequentially (async sessions don't support concurrent operations)
-    email_check = await db.execute(select(User).where(User.email == user_data.email))
-    if email_check.scalar_one_or_none():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email already registered",
+    # Check if email or username already exists (single query to prevent enumeration)
+    existing = await db.execute(
+        select(User).where(
+            or_(User.email == user_data.email, User.username == user_data.username)
         )
-
-    username_check = await db.execute(select(User).where(User.username == user_data.username))
-    if username_check.scalar_one_or_none():
+    )
+    if existing.scalar_one_or_none():
+        password_hash_task.cancel()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Username already taken",
+            detail="An account with this email or username already exists",
         )
 
     # Await the password hash (should be done by now)
@@ -72,7 +83,14 @@ async def register(
         hashed_password=hashed_password,
     )
     db.add(user)
-    await db.flush()
+    try:
+        await db.flush()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="An account with this email or username already exists",
+        )
     await db.refresh(user)
 
     # Capture user data immediately while session is valid
@@ -85,35 +103,39 @@ async def register(
 
     logger.info("User registered", user_id=user.id, username=user.username)
 
-    # Write-through: Populate cache in parallel with token generation
-    cache_task = None
+    # Write-through: Populate cache in parallel with token generation (no sensitive data)
     if cache.is_available:
-        cache_task = asyncio.create_task(
+        create_background_task(
             cache.set_user_data(user.id, {
                 "id": user.id,
                 "email": user.email,
                 "username": user.username,
-                "hashed_password": user.hashed_password,
                 "created_at": user.created_at.isoformat(),
-            })
+            }),
+            name="cache_user_register",
         )
 
     # Generate access token
     access_token = create_access_token(data={"sub": str(user.id)})
     expires_in = settings.jwt_access_token_expire_days * 24 * 60 * 60
 
-    # Await cache task if started (don't block on failure)
-    if cache_task:
-        try:
-            await cache_task
-        except Exception as e:
-            logger.warning("Cache write-through failed", error=str(e))
-
-    return TokenResponse(
+    body = TokenResponse(
         access_token=access_token,
         expires_in=expires_in,
         user=user_response,
     )
+    resp = JSONResponse(content=body.model_dump(mode="json"), status_code=201)
+    resp.set_cookie(
+        key=settings.cookie_name,
+        value=access_token,
+        httponly=True,
+        secure=settings.cookie_secure,
+        samesite=settings.cookie_samesite,
+        max_age=expires_in,
+        path="/",
+        domain=settings.cookie_domain,
+    )
+    return resp
 
 
 @router.post(
@@ -126,8 +148,10 @@ async def register(
 )
 async def login(
     credentials: UserLogin,
+    request: Request,
     db: DBSession,
     cache: Annotated[CacheService, Depends(get_cache_service)],
+    rate_limiter: Annotated[RateLimitService, Depends(get_rate_limit_service)],
 ) -> TokenResponse:
     """
     Authenticate user and return JWT token.
@@ -138,36 +162,23 @@ async def login(
     Uses cache-first lookup for faster authentication.
     """
     settings = get_settings()
-    user = None
-    user_response = None
-    from_cache = False
-    
-    # Try cache first for faster lookup (using email index)
-    if cache.is_available:
-        cached_user = await cache.get_user_by_email(credentials.email)
-        if cached_user:
-            # Create User object from cached data for password verification
-            user = User(
-                id=cached_user["id"],
-                email=cached_user["email"],
-                username=cached_user["username"],
-                hashed_password=cached_user["hashed_password"],
-            )
-            # Create response from cached data (includes created_at)
-            user_response = UserResponse(
-                id=cached_user["id"],
-                email=cached_user["email"],
-                username=cached_user["username"],
-                created_at=datetime.fromisoformat(cached_user["created_at"]) if cached_user.get("created_at") else datetime.now(),
-            )
-            from_cache = True
-    
-    # Cache miss - fallback to database
-    if not user:
-        result = await db.execute(select(User).where(User.email == credentials.email))
-        user = result.scalar_one_or_none()
+
+    # Rate limit auth attempts
+    client_ip = request.client.host if request.client else "unknown"
+    allowed, _ = await rate_limiter.check_auth_limit(f"ip:{client_ip}")
+    if not allowed:
+        raise RateLimitError()
+
+    # Always fetch from database for login (need verified password hash)
+    result = await db.execute(select(User).where(User.email == credentials.email))
+    user = result.scalar_one_or_none()
 
     if not user:
+        # Perform dummy bcrypt to prevent timing-based user enumeration
+        try:
+            await verify_password("dummy_password", "$2b$12$abcdefghijklmnopqrstuvABCDEFGHIJKLMNOPQRSTUVWXYZ01234")
+        except Exception:
+            pass
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
@@ -182,38 +193,48 @@ async def login(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    logger.info("User logged in", user_id=user.id, username=user.username, from_cache=from_cache)
+    logger.info("User logged in", user_id=user.id, username=user.username)
 
-    # Build user response from DB if not from cache
-    if not user_response:
-        user_response = UserResponse(
-            id=user.id,
-            email=user.email,
-            username=user.username,
-            created_at=user.created_at,
-        )
+    user_response = UserResponse(
+        id=user.id,
+        email=user.email,
+        username=user.username,
+        created_at=user.created_at,
+    )
 
-    # Write-through: Populate/refresh cache if not from cache
-    if not from_cache and cache.is_available:
-        asyncio.create_task(
+    # Write-through: Cache non-sensitive user data
+    if cache.is_available:
+        create_background_task(
             cache.set_user_data(user.id, {
                 "id": user.id,
                 "email": user.email,
                 "username": user.username,
-                "hashed_password": user.hashed_password,
                 "created_at": user.created_at.isoformat(),
-            })
+            }),
+            name="cache_user_login",
         )
 
     # Generate access token
     access_token = create_access_token(data={"sub": str(user.id)})
     expires_in = settings.jwt_access_token_expire_days * 24 * 60 * 60
 
-    return TokenResponse(
+    body = TokenResponse(
         access_token=access_token,
         expires_in=expires_in,
         user=user_response,
     )
+    response = JSONResponse(content=body.model_dump(mode="json"))
+    response.set_cookie(
+        key=settings.cookie_name,
+        value=access_token,
+        httponly=True,
+        secure=settings.cookie_secure,
+        samesite=settings.cookie_samesite,
+        max_age=expires_in,
+        path="/",
+        domain=settings.cookie_domain,
+    )
+    return response
 
 
 @router.get(
@@ -247,8 +268,36 @@ async def refresh_token(
     access_token = create_access_token(data={"sub": str(current_user.id)})
     expires_in = settings.jwt_access_token_expire_days * 24 * 60 * 60
 
-    return TokenResponse(
+    body = TokenResponse(
         access_token=access_token,
         expires_in=expires_in,
         user=UserResponse.model_validate(current_user, from_attributes=True),
     )
+    response = JSONResponse(content=body.model_dump(mode="json"))
+    response.set_cookie(
+        key=settings.cookie_name,
+        value=access_token,
+        httponly=True,
+        secure=settings.cookie_secure,
+        samesite=settings.cookie_samesite,
+        max_age=expires_in,
+        path="/",
+        domain=settings.cookie_domain,
+    )
+    return response
+
+
+@router.post(
+    "/logout",
+    summary="Logout and clear auth cookie",
+)
+async def logout():
+    """Clear the authentication cookie."""
+    settings = get_settings()
+    response = JSONResponse(content={"message": "Logged out"})
+    response.delete_cookie(
+        key=settings.cookie_name,
+        path="/",
+        domain=settings.cookie_domain,
+    )
+    return response

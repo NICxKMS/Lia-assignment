@@ -23,6 +23,7 @@ from app.core.config import Settings
 from app.db.models import Base, Conversation, Message, User
 from app.db.session import get_db
 from app.services.cache import CacheService, get_cache_service
+from app.services.rate_limit import RateLimitService, get_rate_limit_service
 from app.services.sentiment import CumulativeState, SentimentResult, SentimentService
 
 
@@ -30,6 +31,8 @@ from app.services.sentiment import CumulativeState, SentimentResult, SentimentSe
 TEST_DATABASE_URL = "sqlite+aiosqlite:///file::memory:?cache=shared&uri=true"
 # Ensure application uses test database for health/readiness checks BEFORE app import
 os.environ.setdefault("DATABASE_URL", TEST_DATABASE_URL)
+os.environ.setdefault("JWT_SECRET_KEY", "test-secret-key-for-testing-only-min-32-chars")
+os.environ.setdefault("DEBUG", "true")
 
 from app.main import app  # noqa: E402  (import after setting env)
 
@@ -131,7 +134,16 @@ async def client(test_db: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
     mock_cache.invalidate_user_history = AsyncMock(return_value=True)
     
     app.dependency_overrides[get_cache_service] = lambda: mock_cache
-    
+
+    # Create disabled rate limiter for tests
+    mock_rate_limiter = MagicMock(spec=RateLimitService)
+    mock_rate_limiter.is_enabled = False
+    mock_rate_limiter.check_auth_limit = AsyncMock(return_value=(True, -1))
+    mock_rate_limiter.check_general_limit = AsyncMock(return_value=(True, -1))
+    mock_rate_limiter.check_chat_limit = AsyncMock(return_value=(True, -1))
+    mock_rate_limiter.close = AsyncMock()
+    app.dependency_overrides[get_rate_limit_service] = lambda: mock_rate_limiter
+
     # Override chat orchestrator to use mock cache
     test_orchestrator = ChatOrchestrator(cache_service=mock_cache)
     app.dependency_overrides[get_chat_orchestrator] = lambda: test_orchestrator
@@ -154,7 +166,7 @@ async def test_user(test_db: AsyncSession) -> User:
     """Create a test user directly in the database."""
     from app.core.security import get_password_hash
     
-    hashed_password = await get_password_hash("testpassword123")
+    hashed_password = await get_password_hash("Testpassword123")
     user = User(
         email="test@example.com",
         username="testuser",
@@ -174,7 +186,7 @@ async def auth_headers(client: AsyncClient, test_user: User) -> dict[str, str]:
         "/api/v1/auth/login",
         json={
             "email": "test@example.com",
-            "password": "testpassword123",
+            "password": "Testpassword123",
         },
     )
     
@@ -189,7 +201,7 @@ async def second_user(test_db: AsyncSession) -> User:
     """Create a second test user for isolation tests."""
     from app.core.security import get_password_hash
     
-    hashed_password = await get_password_hash("secondpass123")
+    hashed_password = await get_password_hash("Secondpass123")
     user = User(
         email="second@example.com",
         username="seconduser",

@@ -7,7 +7,7 @@ with sensible defaults for development.
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, computed_field
+from pydantic import Field, computed_field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -37,12 +37,21 @@ class Settings(BaseSettings):
 
     # ========== Authentication ==========
     jwt_secret_key: str = Field(
-        default="CHANGE-THIS-IN-PRODUCTION-USE-SECRETS-TOKEN",
+        ...,
         min_length=32,
         description="JWT signing secret key",
     )
     jwt_algorithm: Literal["HS256", "HS384", "HS512"] = "HS256"
     jwt_access_token_expire_days: int = Field(default=7, ge=1, le=30)
+
+    @model_validator(mode='after')
+    def _reject_placeholder_jwt_secret(self) -> 'Settings':
+        if self.jwt_secret_key == "CHANGE-THIS-IN-PRODUCTION-USE-SECRETS-TOKEN":
+            raise ValueError(
+                "jwt_secret_key must be changed from the placeholder value. "
+                "Set JWT_SECRET_KEY environment variable to a secure random string."
+            )
+        return self
 
     # ========== LLM Providers ==========
     gemini_api_key: str = Field(default="", description="Google Gemini API Key")
@@ -52,6 +61,12 @@ class Settings(BaseSettings):
 
     # ========== Google Cloud (Optional) ==========
     google_cloud_project_id: str = Field(default="", description="GCP Project ID for NLP API")
+
+    # ========== Cookie Settings ==========
+    cookie_name: str = Field(default="access_token", description="Cookie name for JWT")
+    cookie_secure: bool = Field(default=True, description="Secure flag for cookies")
+    cookie_samesite: Literal["lax", "strict", "none"] = Field(default="lax", description="SameSite policy")
+    cookie_domain: str | None = Field(default=None, description="Cookie domain")
 
     # ========== CORS ==========
     cors_origins_str: str = Field(
@@ -94,8 +109,8 @@ class Settings(BaseSettings):
 
     @computed_field
     @property
-    def neon_database_url(self) -> str:
-        """Convert database URL for asyncpg compatibility with Neon."""
+    def processed_database_url(self) -> str:
+        """Convert database URL for asyncpg compatibility with Neon / Supabase."""
         url = self.database_url
         # Neon uses sslmode, asyncpg uses ssl
         replacements = [
@@ -105,6 +120,10 @@ class Settings(BaseSettings):
         ]
         for old, new in replacements:
             url = url.replace(old, new)
+        # Ensure pgbouncer flag for Supabase pooler connections
+        if "pooler.supabase.com" in url and "pgbouncer=true" not in url:
+            separator = "&" if "?" in url else "?"
+            url += f"{separator}pgbouncer=true"
         return url
 
 

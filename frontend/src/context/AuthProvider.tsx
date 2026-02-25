@@ -1,90 +1,87 @@
-import React, { useState, useEffect, useCallback } from 'react'
-import { authApi } from '../lib/api'
-import type { User } from '../lib/api'
-import { AuthContext } from './AuthContext'
+import type React from "react";
+import { useCallback, useEffect, useState } from "react";
+import type { User } from "../lib/api";
+import { authApi } from "../lib/api";
+import { AuthContext } from "./AuthContext";
 
-export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(null)
-  const [token, setToken] = useState<string | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
+export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
+	children,
+}) => {
+	const [user, setUser] = useState<User | null>(null);
+	const [isLoading, setIsLoading] = useState(true);
 
-  // Validate stored auth on mount
-  useEffect(() => {
-    const validateAuth = async () => {
-      const storedToken = localStorage.getItem('token')
-      const storedUser = localStorage.getItem('user')
-      
-      if (storedToken) {
-        try {
-          // Validate token by fetching user data
-          const userData = await authApi.me()
-          setToken(storedToken)
-          setUser(userData)
-          localStorage.setItem('user', JSON.stringify(userData))
-        } catch (error) {
-          // Only clear credentials on explicit 401 Unauthorized
-          const is401 = error instanceof Response && error.status === 401
-          
-          if (is401) {
-            // Token is invalid, clear it
-            localStorage.removeItem('token')
-            localStorage.removeItem('user')
-          } else if (storedUser) {
-            // Transient error - keep cached session
-            try {
-              const cachedUser = JSON.parse(storedUser) as User
-              setToken(storedToken)
-              setUser(cachedUser)
-            } catch {
-              // Invalid cached user, clear everything
-              localStorage.removeItem('token')
-              localStorage.removeItem('user')
-            }
-          }
-        }
-      }
-      setIsLoading(false)
-    }
-    
-    validateAuth()
-  }, [])
+	// Validate stored auth on mount
+	useEffect(() => {
+		const validateAuth = async () => {
+			const storedUser = localStorage.getItem("user");
 
-  const login = useCallback(async (email: string, password: string) => {
-    const response = await authApi.login(email, password)
-    
-    localStorage.setItem('token', response.access_token)
-    localStorage.setItem('user', JSON.stringify(response.user))
-    
-    setToken(response.access_token)
-    setUser(response.user)
-  }, [])
+			try {
+				// Try to validate via cookie (sent automatically with credentials: 'include')
+				const userData = await authApi.me();
+				if (userData) {
+					setUser(userData);
+					localStorage.setItem("user", JSON.stringify(userData));
+				}
+			} catch (error) {
+				// Only clear on explicit 401 Unauthorized
+				const is401 = error instanceof Response && error.status === 401;
 
-  const register = useCallback(async (email: string, username: string, password: string) => {
-    const response = await authApi.register(email, username, password)
-    
-    localStorage.setItem('token', response.access_token)
-    localStorage.setItem('user', JSON.stringify(response.user))
-    
-    setToken(response.access_token)
-    setUser(response.user)
-  }, [])
+				if (is401) {
+					// Cookie is invalid or missing, clear local user data
+					localStorage.removeItem("user");
+				} else if (storedUser) {
+					// Transient error - keep cached user for display
+					try {
+						const cachedUser = JSON.parse(storedUser) as User;
+						setUser(cachedUser);
+					} catch {
+						localStorage.removeItem("user");
+					}
+				}
+			}
+			setIsLoading(false);
+		};
 
-  const logout = useCallback(() => {
-    localStorage.removeItem('token')
-    localStorage.removeItem('user')
-    setToken(null)
-    setUser(null)
-  }, [])
+		validateAuth();
+	}, []);
 
-  const value = {
-    user,
-    token,
-    isLoading,
-    isAuthenticated: !!token && !!user,
-    login,
-    register,
-    logout,
-  }
+	const login = useCallback(async (email: string, password: string) => {
+		const response = await authApi.login(email, password);
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
-}
+		localStorage.setItem("user", JSON.stringify(response.user));
+
+		setUser(response.user);
+	}, []);
+
+	const register = useCallback(
+		async (email: string, username: string, password: string) => {
+			const response = await authApi.register(email, username, password);
+
+			localStorage.setItem("user", JSON.stringify(response.user));
+
+			setUser(response.user);
+		},
+		[],
+	);
+
+	const logout = useCallback(async () => {
+		try {
+			await authApi.logout();
+		} catch {
+			// Even if the API call fails, clear local state
+		}
+		localStorage.removeItem("user");
+		setUser(null);
+	}, []);
+
+	const value = {
+		user,
+		isLoading,
+		isAuthenticated: !!user,
+		login,
+		register,
+		logout,
+	};
+
+	return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+};

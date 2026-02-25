@@ -1,4 +1,7 @@
-# Render.com Deployment Configuration
+# ⚠️ NOT THE ACTIVE CONFIG — The root /render.yaml is used by Render.
+# This file is kept for reference only. Do not modify for deployments.
+#
+# Render.com Deployment Configuration (INACTIVE)
 # =====================================
 # This file defines the infrastructure for deploying the Lia Chatbot Backend
 # on Render.com with automatic scaling and health monitoring.

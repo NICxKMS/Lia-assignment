@@ -1,6 +1,5 @@
 """Chat API endpoints with streaming support."""
 
-import asyncio
 import json
 from collections.abc import AsyncGenerator
 from typing import Annotated, Any
@@ -18,6 +17,7 @@ from app.api.schemas import (
     SuccessResponse,
 )
 from app.core.logging import get_logger
+from app.core.tasks import create_background_task
 from app.services.chat import ChatOrchestrator, get_chat_orchestrator
 from app.services.rate_limit import RateLimitService, get_rate_limit_service
 
@@ -95,7 +95,7 @@ async def send_message_stream(
                 yield event
         except Exception as e:
             logger.error("Stream error", error=str(e))
-            yield f"event: error\ndata: {json.dumps({'message': str(e)})}\n\n"
+            yield f"event: error\ndata: {json.dumps({'message': 'An error occurred processing your request.'})}\n\n"
 
     return StreamingResponse(
         event_generator(),
@@ -112,20 +112,23 @@ async def send_message_stream(
     "/history",
     response_model=list[ConversationSummary],
     summary="Get conversation history",
+    # Ideal RESTful path: GET /conversations (collection resource)
 )
 async def get_history(
     current_user: CurrentUser,
     db: DBSession,
     orchestrator: Annotated[ChatOrchestrator, Depends(get_chat_orchestrator)],
-    limit: int = 20,
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=20, ge=1, le=100),
 ) -> list[ConversationSummary]:
     """
     Get the conversation history for the current user.
     
     Returns a list of conversation summaries sorted by most recent first.
+    Supports pagination via `offset` and `limit` query parameters.
     """
     conversations = await orchestrator.get_conversation_history(
-        db, current_user.id, limit
+        db, current_user.id, limit=limit, offset=offset
     )
     return [ConversationSummary(**conv) for conv in conversations]
 
@@ -133,7 +136,7 @@ async def get_history(
 @router.get(
     "/conversation/{conversation_id}",
     response_model=ConversationDetail,
-    summary="Get conversation details",
+    summary="Get single conversation with messages",
     responses={
         404: {"description": "Conversation not found"},
     },
@@ -167,7 +170,7 @@ async def get_conversation(
 @router.delete(
     "/conversation/{conversation_id}",
     response_model=DeleteResponse,
-    summary="Delete a conversation",
+    summary="Delete a single conversation",
     responses={
         404: {"description": "Conversation not found"},
     },
@@ -198,7 +201,7 @@ async def delete_conversation(
 @router.delete(
     "/conversations",
     response_model=DeleteResponse,
-    summary="Delete all conversations",
+    summary="Delete all conversations for the current user",
 )
 async def delete_all_conversations(
     current_user: CurrentUser,
@@ -275,7 +278,7 @@ async def get_available_models(
     
     # Cache for future requests (fire and forget for static data)
     if cache.is_available:
-        asyncio.create_task(cache.set_available_models(models))
+        create_background_task(cache.set_available_models(models), name="cache_models")
     
     return models
 
@@ -306,6 +309,6 @@ async def get_sentiment_methods(
     
     # Cache for future requests (fire and forget for static data)
     if cache.is_available:
-        asyncio.create_task(cache.set_sentiment_methods(methods))
+        create_background_task(cache.set_sentiment_methods(methods), name="cache_methods")
     
     return methods

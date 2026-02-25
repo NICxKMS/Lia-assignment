@@ -1,0 +1,144 @@
+INFO:     Started server process [59]
+{"app_name": "Lia Chatbot", "version": "2.5.1", "debug": false, "event": "Starting application", "level": "info", "logger": "app.main", "timestamp": "2026-02-24T15:16:17.116575Z", "app": "Lia Chatbot"}
+INFO:     Waiting for application startup.
+{"pool_size": 5, "max_overflow": 10, "event": "Using connection pool", "level": "info", "logger": "app.db.session", "timestamp": "2026-02-24T15:16:17.116770Z", "app": "Lia Chatbot", "version": "2.5.1"}
+{"event": "Database engine created", "level": "info", "logger": "app.db.session", "timestamp": "2026-02-24T15:16:17.426607Z", "app": "Lia Chatbot", "version": "2.5.1"}
+ERROR:    Traceback (most recent call last):
+  File "/opt/render/project/src/backend/.venv/lib/python3.11/site-packages/asyncpg/connection.py", line 2443, in connect
+    return await connect_utils._connect(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/render/project/src/backend/.venv/lib/python3.11/site-packages/asyncpg/connect_utils.py", line 1218, in _connect
+    conn = await _connect_addr(
+           ^^^^^^^^^^^^^^^^^^^^
+  File "/opt/render/project/src/backend/.venv/lib/python3.11/site-packages/asyncpg/connect_utils.py", line 1050, in _connect_addr
+    return await __connect_addr(params, False, *args)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/render/project/src/backend/.venv/lib/python3.11/site-packages/asyncpg/connect_utils.py", line 1099, in __connect_addr
+    tr, pr = await connector
+             ^^^^^^^^^^^^^^^
+  File "/opt/render/project/src/backend/.venv/lib/python3.11/site-packages/asyncpg/connect_utils.py", line 969, in _create_ssl_connection
+    tr, pr = await loop.create_connection(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "uvloop/loop.pyx", line 2033, in create_connection
+  File "uvloop/loop.pyx", line 2020, in uvloop.loop.Loop.create_connection
+asyncio.exceptions.CancelledError
+The above exception was the direct cause of the following exception:
+Traceback (most recent call last):
+  File "/opt/render/project/src/backend/.venv/lib/python3.11/site-packages/starlette/routing.py", line 694, in lifespan
+    async with self.lifespan_context(app) as maybe_state:
+  File "/opt/render/project/python/Python-3.11.14/lib/python3.11/contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/render/project/src/backend/.venv/lib/python3.11/site-packages/fastapi/routing.py", line 205, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+  File "/opt/render/project/python/Python-3.11.14/lib/python3.11/contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/render/project/src/backend/.venv/lib/python3.11/site-packages/fastapi/routing.py", line 205, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+  File "/opt/render/project/python/Python-3.11.14/lib/python3.11/contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/render/project/src/backend/.venv/lib/python3.11/site-packages/fastapi/routing.py", line 205, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+  File "/opt/render/project/python/Python-3.11.14/lib/python3.11/contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/render/project/src/backend/app/main.py", line 52, in lifespan
+    await init_db()
+  File "/opt/render/project/src/backend/app/db/session.py", line 141, in init_db
+    async with engine.begin() as conn:
+  File "/opt/render/project/python/Python-3.11.14/lib/python3.11/contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/render/project/src/backend/.venv/lib/python3.11/site-packages/sqlalchemy/ext/asyncio/engine.py", line 1068, in begin
+    async with conn:
+  File "/opt/render/project/src/backend/.venv/lib/python3.11/site-packages/sqlalchemy/ext/asyncio/base.py", line 121, in __aenter__
+    return await self.start(is_ctxmanager=True)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/render/project/src/backend/.venv/lib/python3.11/site-packages/sqlalchemy/ext/asyncio/engine.py", line 275, in start
+    await greenlet_spawn(self.sync_engine.connect)
+  File "/opt/render/project/src/backend/.venv/lib/python3.11/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 201, in greenlet_spawn
+    result = context.throw(*sys.exc_info())
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/render/project/src/backend/.venv/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 3277, in connect
+    return self._connection_cls(self)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/render/project/src/backend/.venv/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 143, in __init__
+    self._dbapi_connection = engine.raw_connection()
+                             ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/render/project/src/backend/.venv/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 3301, in raw_connection
+    return self.pool.connect()
+           ^^^^^^^^^^^^^^^^^^^
+  File "/opt/render/project/src/backend/.venv/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 447, in connect
+    return _ConnectionFairy._checkout(self)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/render/project/src/backend/.venv/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 1264, in _checkout
+    fairy = _ConnectionRecord.checkout(pool)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/render/project/src/backend/.venv/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 711, in checkout
+    rec = pool._do_get()
+          ^^^^^^^^^^^^^^
+  File "/opt/render/project/src/backend/.venv/lib/python3.11/site-packages/sqlalchemy/pool/impl.py", line 177, in _do_get
+    with util.safe_reraise():
+  File "/opt/render/project/src/backend/.venv/lib/python3.11/site-packages/sqlalchemy/util/langhelpers.py", line 224, in __exit__
+    raise exc_value.with_traceback(exc_tb)
+  File "/opt/render/project/src/backend/.venv/lib/python3.11/site-packages/sqlalchemy/pool/impl.py", line 175, in _do_get
+    return self._create_connection()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/render/project/src/backend/.venv/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 388, in _create_connection
+    return _ConnectionRecord(self)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/render/project/src/backend/.venv/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 673, in __init__
+    self.__connect()
+  File "/opt/render/project/src/backend/.venv/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 899, in __connect
+    with util.safe_reraise():
+  File "/opt/render/project/src/backend/.venv/lib/python3.11/site-packages/sqlalchemy/util/langhelpers.py", line 224, in __exit__
+    raise exc_value.with_traceback(exc_tb)
+  File "/opt/render/project/src/backend/.venv/lib/python3.11/site-packages/sqlalchemy/pool/base.py", line 895, in __connect
+    self.dbapi_connection = connection = pool._invoke_creator(self)
+                                         ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/render/project/src/backend/.venv/lib/python3.11/site-packages/sqlalchemy/engine/create.py", line 661, in connect
+    return dialect.connect(*cargs, **cparams)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/render/project/src/backend/.venv/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 629, in connect
+    return self.loaded_dbapi.connect(*cargs, **cparams)  # type: ignore[no-any-return]  # NOQA: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/render/project/src/backend/.venv/lib/python3.11/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 955, in connect
+    await_only(creator_fn(*arg, **kw)),
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/render/project/src/backend/.venv/lib/python3.11/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 132, in await_only
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/render/project/src/backend/.venv/lib/python3.11/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 196, in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+  File "/opt/render/project/src/backend/.venv/lib/python3.11/site-packages/asyncpg/connection.py", line 2442, in connect
+    async with compat.timeout(timeout):
+  File "/opt/render/project/python/Python-3.11.14/lib/python3.11/asyncio/timeouts.py", line 115, in __aexit__
+    raise TimeoutError from exc_val
+TimeoutError
+ERROR:    Application startup failed. Exiting.
+==> Running 'uv run uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1 --loop uvloop --http httptools'
+warning: `VIRTUAL_ENV=/opt/render/project/src/.venv` does not match the project environment path `.venv` and will be ignored; use `--active` to target the active environment instead
+   Building lia-backend @ file:///opt/render/project/src/backend
+      Built lia-backend @ file:///opt/render/project/src/backend
+Uninstalled 1 package in 95ms
+Installed 1 package in 5ms
+Bytecode compiled 3867 files in 7.00s
+INFO:     Started server process [66]
+INFO:     Waiting for application startup.
+{"app_name": "Lia Chatbot", "version": "2.5.1", "debug": false, "event": "Starting application", "level": "info", "logger": "app.main", "timestamp": "2026-02-24T15:18:20.158275Z", "app": "Lia Chatbot"}
+{"pool_size": 5, "max_overflow": 10, "event": "Using connection pool", "level": "info", "logger": "app.db.session", "timestamp": "2026-02-24T15:18:20.158580Z", "app": "Lia Chatbot", "version": "2.5.1"}
+{"event": "Database engine created", "level": "info", "logger": "app.db.session", "timestamp": "2026-02-24T15:18:20.360695Z", "app": "Lia Chatbot", "version": "2.5.1"}
+{"event": "Database tables initialized", "level": "info", "logger": "app.db.session", "timestamp": "2026-02-24T15:18:20.850920Z", "app": "Lia Chatbot", "version": "2.5.1"}
+{"event": "Database initialized", "level": "info", "logger": "app.main", "timestamp": "2026-02-24T15:18:20.851240Z", "app": "Lia Chatbot", "version": "2.5.1"}
+{"event": "Pre-warmed Gemini adapter", "level": "info", "logger": "app.services.llm", "timestamp": "2026-02-24T15:18:21.454721Z", "app": "Lia Chatbot", "version": "2.5.1"}
+{"event": "LLM adapters pre-warmed", "level": "info", "logger": "app.main", "timestamp": "2026-02-24T15:18:21.455043Z", "app": "Lia Chatbot", "version": "2.5.1"}
+{"event": "Redis cache initialized", "level": "info", "logger": "app.services.cache.base", "timestamp": "2026-02-24T15:18:21.649587Z", "app": "Lia Chatbot", "version": "2.5.1"}
+{"event": "Static caches warmed", "level": "info", "logger": "app.main", "timestamp": "2026-02-24T15:18:21.766317Z", "app": "Lia Chatbot", "version": "2.5.1"}
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:10000 (Press CTRL+C to quit)
+INFO:     Shutting down
+INFO:     Waiting for connections to close. (CTRL+C to force quit)
+INFO:     Waiting for background tasks to complete. (CTRL+C to force quit)

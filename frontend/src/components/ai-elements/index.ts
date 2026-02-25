@@ -1,14 +1,13 @@
 // AI Elements - Model Selector Components
 // Only the used components are exported
 
+export { type AIModel, defaultModels } from "./model-data";
 // Model Selector Components
 export {
-  ModelSelector,
-  ModelDropdown,
-  ModelBadgeSelector,
-  type ModelSelectorProps,
-  type ModelDropdownProps,
-  type ModelBadgeSelectorProps,
-} from './model-selector'
-
-export { defaultModels, type AIModel } from './model-data'
+	ModelBadgeSelector,
+	type ModelBadgeSelectorProps,
+	ModelDropdown,
+	type ModelDropdownProps,
+	ModelSelector,
+	type ModelSelectorProps,
+} from "./model-selector";

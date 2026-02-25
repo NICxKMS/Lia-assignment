@@ -1,0 +1,8 @@
+__pycache__
+*.pyc
+.env
+.git
+tests/
+alembic/versions/__pycache__
+.pytest_cache
+.ruff_cache

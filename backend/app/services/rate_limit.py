@@ -72,7 +72,7 @@ class RateLimitService:
         """Check if rate limiting is enabled."""
         return self._enabled
 
-    async def _check_limit(self, key: str, limit: int) -> tuple[bool, int]:
+    async def _check_limit(self, key: str, limit: int, *, fail_closed: bool = False) -> tuple[bool, int]:
         """Check rate limit using sliding window counter.
         
         Uses persistent connection for reduced latency.
@@ -118,6 +118,8 @@ class RateLimitService:
             
         except Exception as e:
             logger.warning("Rate limit check failed", key=key, error=str(e))
+            if fail_closed:
+                return False, 0
             return True, -1  # Allow on error
 
     async def check_general_limit(self, identifier: str) -> tuple[bool, int]:
@@ -144,16 +146,26 @@ class RateLimitService:
         key = f"ratelimit:chat:{identifier}"
         return await self._check_limit(key, self._chat_limit)
 
+    async def check_auth_limit(self, identifier: str) -> tuple[bool, int]:
+        """Check auth endpoint rate limit (fail-closed).
+        
+        For login/registration endpoints, denies requests when
+        the rate limiter is unavailable to prevent brute-force attacks.
+        
+        Args:
+            identifier: Unique identifier (IP address)
+            
+        Returns:
+            Tuple of (allowed, remaining_requests)
+        """
+        key = f"ratelimit:auth:{identifier}"
+        return await self._check_limit(key, self._general_limit, fail_closed=True)
 
-# Global rate limit service instance
-_rate_limit_service: RateLimitService | None = None
+
+from functools import lru_cache
 
 
+@lru_cache
 def get_rate_limit_service() -> RateLimitService:
-    """Get or create the global rate limit service instance."""
-    global _rate_limit_service
-    
-    if _rate_limit_service is None:
-        _rate_limit_service = RateLimitService()
-    
-    return _rate_limit_service
+    """Get or create the rate limit service instance (cached)."""
+    return RateLimitService()

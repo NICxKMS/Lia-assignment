@@ -1,6 +1,6 @@
 """Security utilities for JWT authentication and password hashing.
 
-Uses bcrypt for password hashing and python-jose for JWT.
+Uses bcrypt for password hashing and PyJWT for JWT.
 All operations are designed to be non-blocking for async usage.
 """
 
@@ -9,7 +9,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import bcrypt
-from jose import JWTError, jwt
+import jwt as pyjwt
+from jwt.exceptions import InvalidTokenError
 
 from app.core.config import get_settings
 
@@ -19,7 +20,7 @@ async def verify_password(plain_password: str, hashed_password: str) -> bool:
     
     Runs in a thread pool to avoid blocking the event loop.
     """
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     
     def _verify() -> bool:
         password_bytes = plain_password.encode("utf-8")
@@ -34,7 +35,7 @@ async def get_password_hash(password: str) -> str:
     
     Runs in a thread pool to avoid blocking the event loop.
     """
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     
     def _hash() -> str:
         password_bytes = password.encode("utf-8")
@@ -73,7 +74,7 @@ def create_access_token(
         "iat": datetime.now(timezone.utc),
     })
     
-    return jwt.encode(  # type: ignore[no-any-return]
+    return pyjwt.encode(
         to_encode,
         settings.jwt_secret_key,
         algorithm=settings.jwt_algorithm,
@@ -91,13 +92,13 @@ def decode_access_token(token: str) -> dict[str, Any] | None:
     """
     settings = get_settings()
     try:
-        payload = jwt.decode(
+        payload = pyjwt.decode(
             token,
             settings.jwt_secret_key,
             algorithms=[settings.jwt_algorithm],
         )
-        return payload  # type: ignore[no-any-return]
-    except JWTError:
+        return payload
+    except InvalidTokenError:
         return None
 
 

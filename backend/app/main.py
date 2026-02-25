@@ -3,6 +3,8 @@
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
+import asyncio as _asyncio
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import structlog
@@ -48,8 +50,21 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         debug=settings.debug,
     )
     
-    # Initialize database
-    await init_db()
+    # Initialize database with retry logic for transient connection failures
+    for _attempt in range(3):
+        try:
+            await init_db()
+            break
+        except Exception as exc:
+            if _attempt == 2:
+                logger.error("Failed to initialize database after 3 attempts", error=str(exc))
+                raise
+            logger.warning(
+                "Database init failed, retrying...",
+                attempt=_attempt + 1,
+                error=str(exc),
+            )
+            await _asyncio.sleep(2 ** _attempt)
     logger.info("Database initialized")
     
     # Pre-warm LLM adapters to eliminate first-request latency
@@ -70,6 +85,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Cleanup
     logger.info("Shutting down application")
     
+    # Close LLM adapter HTTP clients
+    llm = get_llm_service()
+    await llm.close()
+    logger.info("LLM adapter connections closed")
+
     # Close rate limiter HTTP client
     rate_limiter = get_rate_limit_service()
     await rate_limiter.close()
@@ -90,7 +110,7 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
         docs_url="/docs" if settings.debug else None,
         redoc_url="/redoc" if settings.debug else None,
-        openapi_url="/openapi.json" if settings.debug else "/api/openapi.json",
+        openapi_url="/openapi.json" if settings.debug else None,
     )
     
     # Configure CORS
@@ -98,11 +118,32 @@ def create_app() -> FastAPI:
         CORSMiddleware,
         allow_origins=settings.cors_origins,
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type"],
         expose_headers=["X-Request-ID"],
     )
-    
+
+    # Security headers middleware
+    from starlette.middleware.base import BaseHTTPMiddleware
+
+    class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+        async def dispatch(self, request, call_next):
+            response = await call_next(request)
+            response.headers["X-Content-Type-Options"] = "nosniff"
+            response.headers["X-Frame-Options"] = "DENY"
+            response.headers["X-XSS-Protection"] = "1; mode=block"
+            response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+            response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+            if not settings.debug:
+                response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+            return response
+
+    app.add_middleware(SecurityHeadersMiddleware)
+
+    # GZip compression for responses
+    from starlette.middleware.gzip import GZipMiddleware
+    app.add_middleware(GZipMiddleware, minimum_size=500)
+
     # Register exception handlers
     app.add_exception_handler(AppException, app_exception_handler)  # type: ignore[arg-type]
     app.add_exception_handler(HTTPException, http_exception_handler)  # type: ignore[arg-type]

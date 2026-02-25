@@ -124,6 +124,14 @@ async def app_exception_handler(request: Request, exc: AppException) -> JSONResp
         path=str(request.url),
     )
     
+    headers = _get_cors_headers(request)
+
+    # Add Retry-After header for 429 rate-limit responses
+    if exc.status_code == status.HTTP_429_TOO_MANY_REQUESTS:
+        retry_after = exc.details.get("retry_after")
+        if retry_after is not None:
+            headers["Retry-After"] = str(retry_after)
+
     return JSONResponse(
         status_code=exc.status_code,
         content={
@@ -132,7 +140,7 @@ async def app_exception_handler(request: Request, exc: AppException) -> JSONResp
                 "details": exc.details,
             }
         },
-        headers=_get_cors_headers(request),
+        headers=headers,
     )
 
 

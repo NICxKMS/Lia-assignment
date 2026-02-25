@@ -73,54 +73,65 @@
 }
 
 @layer base {
-  html {
-    font-family: var(--font-sans);
-  }
+	html {
+		font-family: var(--font-sans);
+	}
 
-  /* Text selection styling */
-  *::selection {
-    background-color: #3b82f6 !important;
-    color: #ffffff !important;
-  }
+	/* Text selection styling */
+	*::selection {
+		background-color: #3b82f6 !important;
+		color: #ffffff !important;
+	}
 
-  *::-moz-selection {
-    background-color: #3b82f6 !important;
-    color: #ffffff !important;
-  }
+	*::-moz-selection {
+		background-color: #3b82f6 !important;
+		color: #ffffff !important;
+	}
 
-  /* Modern Scrollbar */
-  ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
-  }
-  ::-webkit-scrollbar-track {
-    background: transparent;
-  }
-  ::-webkit-scrollbar-thumb {
-    background: var(--color-border-strong);
-    border-radius: 3px;
-  }
-  ::-webkit-scrollbar-thumb:hover {
-    background: var(--color-text-tertiary);
-  }
+	/* Modern Scrollbar */
+	::-webkit-scrollbar {
+		width: 6px;
+		height: 6px;
+	}
+	::-webkit-scrollbar-track {
+		background: transparent;
+	}
+	::-webkit-scrollbar-thumb {
+		background: var(--color-border-strong);
+		border-radius: 3px;
+	}
+	::-webkit-scrollbar-thumb:hover {
+		background: var(--color-text-tertiary);
+	}
+
+	.custom-scrollbar::-webkit-scrollbar {
+		width: 6px;
+	}
+	.custom-scrollbar::-webkit-scrollbar-track {
+		background: transparent;
+	}
+	.custom-scrollbar::-webkit-scrollbar-thumb {
+		background: var(--color-border-strong);
+		border-radius: 3px;
+	}
 }
 
 @layer utilities {
-  .glass {
-    @apply backdrop-blur-md bg-bg-primary/80 border-b border-border-subtle;
-  }
+	.glass {
+		@apply backdrop-blur-md bg-bg-primary/80 border-b border-border-subtle;
+	}
 
-  .glass-panel {
-    @apply backdrop-blur-md bg-bg-secondary/50 border border-border-strong;
-  }
+	.glass-panel {
+		@apply backdrop-blur-md bg-bg-secondary/50 border border-border-strong;
+	}
 
-  .glass-card {
-    @apply backdrop-blur-xl bg-white/5 border border-white/10 shadow-xl;
-  }
+	.glass-card {
+		@apply backdrop-blur-xl bg-white/5 border border-white/10 shadow-xl;
+	}
 
-  .text-gradient {
-    @apply bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-purple-400;
-  }
+	.text-gradient {
+		@apply bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-purple-400;
+	}
 }
 
 @theme inline {
@@ -161,45 +172,45 @@
 
 /* Dark theme by default - matches our slate theme */
 :root {
-  --radius: 0.5rem;
-  --background: #09090b;
-  --foreground: #fafafa;
-  --card: #18181b;
-  --card-foreground: #fafafa;
-  --popover: #18181b;
-  --popover-foreground: #fafafa;
-  --primary: #fafafa;
-  --primary-foreground: #18181b;
-  --secondary: #27272a;
-  --secondary-foreground: #fafafa;
-  --muted: #27272a;
-  --muted-foreground: #a1a1aa;
-  --accent: #27272a;
-  --accent-foreground: #fafafa;
-  --destructive: #ef4444;
-  --border: #27272a;
-  --input: #27272a;
-  --ring: #d4d4d8;
-  --chart-1: #fafafa;
-  --chart-2: #10b981;
-  --chart-3: #f59e0b;
-  --chart-4: #8b5cf6;
-  --chart-5: #ec4899;
-  --sidebar: #000000;
-  --sidebar-foreground: #fafafa;
-  --sidebar-primary: #fafafa;
-  --sidebar-primary-foreground: #18181b;
-  --sidebar-accent: #27272a;
-  --sidebar-accent-foreground: #fafafa;
-  --sidebar-border: #27272a;
-  --sidebar-ring: #d4d4d8;
+	--radius: 0.5rem;
+	--background: #09090b;
+	--foreground: #fafafa;
+	--card: #18181b;
+	--card-foreground: #fafafa;
+	--popover: #18181b;
+	--popover-foreground: #fafafa;
+	--primary: #fafafa;
+	--primary-foreground: #18181b;
+	--secondary: #27272a;
+	--secondary-foreground: #fafafa;
+	--muted: #27272a;
+	--muted-foreground: #a1a1aa;
+	--accent: #27272a;
+	--accent-foreground: #fafafa;
+	--destructive: #ef4444;
+	--border: #27272a;
+	--input: #27272a;
+	--ring: #d4d4d8;
+	--chart-1: #fafafa;
+	--chart-2: #10b981;
+	--chart-3: #f59e0b;
+	--chart-4: #8b5cf6;
+	--chart-5: #ec4899;
+	--sidebar: #000000;
+	--sidebar-foreground: #fafafa;
+	--sidebar-primary: #fafafa;
+	--sidebar-primary-foreground: #18181b;
+	--sidebar-accent: #27272a;
+	--sidebar-accent-foreground: #fafafa;
+	--sidebar-border: #27272a;
+	--sidebar-ring: #d4d4d8;
 }
 
 @layer base {
-  * {
-    @apply border-border outline-ring/50;
-  }
-  body {
-    @apply bg-background text-foreground antialiased;
-  }
+	* {
+		@apply border-border outline-ring/50;
+	}
+	body {
+		@apply bg-background text-foreground antialiased;
+	}
 }

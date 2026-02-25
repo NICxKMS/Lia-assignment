@@ -14,7 +14,6 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any
 
-from google.genai import types as genai_types
 from google.cloud import language_v1
 from pydantic import BaseModel
 
@@ -229,29 +228,10 @@ Respond with ONLY valid JSON:
         
         try:
             adapter = self.llm_service.get_adapter(provider)
-            contents = [
-                genai_types.Content(
-                    role="user",
-                    parts=[genai_types.Part.from_text(text=prompt)],
-                )
-            ]
-            config = genai_types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema=IncrementalSentimentSchema,
-                temperature=0.1,
-                thinking_config=genai_types.ThinkingConfig(
-                    thinking_budget=-1,  # Dynamic thinking budget
-                ),
-            )
+            response_text = await adapter.generate_content(prompt, model=model)
             
-            response = await adapter.client.aio.models.generate_content(  # type: ignore[attr-defined]
-                model=model,
-                contents=contents,
-                config=config,
-            )
-            
-            if response.text:
-                data = json.loads(response.text)
+            if response_text:
+                data = json.loads(response_text)
                 score = max(-1.0, min(1.0, float(data.get("score", 0.0))))
                 label = data.get("label", SentimentResult.score_to_label(score))
                 summary = data.get("summary", "")[:100]  # Cap summary length
@@ -339,7 +319,7 @@ class GoogleCloudNLPStrategy(SentimentStrategy):
                 return self._available
             
             # Initialize in thread pool to avoid blocking
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             try:
                 self._client = await loop.run_in_executor(
                     None,
@@ -375,7 +355,7 @@ class GoogleCloudNLPStrategy(SentimentStrategy):
             )
             
             # Run in thread pool to avoid blocking
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             response = await loop.run_in_executor(
                 None,
                 lambda: self._client.analyze_sentiment(request={"document": document}),  # type: ignore
@@ -432,46 +412,24 @@ Where:
         self.model = model
 
     async def analyze(self, text: str) -> SentimentResult:
-        # Reuse the adapter's Gemini client instead of creating a new one
-        # This avoids 'AFC is enabled' message spam from multiple client instantiations
-        if self.provider == "gemini":
-            try:
-                adapter = self.llm_service.get_adapter("gemini")
-                contents = [
-                    genai_types.Content(
-                        role="user",
-                        parts=[genai_types.Part.from_text(text=f"Analyze the sentiment of this text:\n\n{text}")],
-                    )
-                ]
-                config = genai_types.GenerateContentConfig(
-                    system_instruction=self.SYSTEM_PROMPT,
-                    response_mime_type="application/json",
-                    response_schema=SentimentAnalysisSchema,
-                    temperature=0.1,
-                    thinking_config=genai_types.ThinkingConfig(
-                        thinking_budget=-1,  # Dynamic thinking budget
-                    ),
+        # Use the adapter's generate_content for a non-streaming sentiment call
+        try:
+            adapter = self.llm_service.get_adapter(self.provider)
+            full_prompt = f"{self.SYSTEM_PROMPT}\n\nAnalyze the sentiment of this text:\n\n{text}"
+            response_text = await adapter.generate_content(full_prompt, model=self.model)
+
+            if response_text:
+                data = json.loads(response_text)
+                score = max(-1.0, min(1.0, float(data.get("score", 0.0))))
+                return SentimentResult(
+                    score=score,
+                    label=data.get("label", SentimentResult.score_to_label(score)),
+                    emotion=data.get("emotion", "neutral"),
+                    source=self.strategy_name,
+                    details={"provider": self.provider, "model": self.model},
                 )
-                
-                # Use the adapter's existing client
-                response = await adapter.client.aio.models.generate_content(  # type: ignore[attr-defined]
-                    model=self.model,
-                    contents=contents,
-                    config=config,
-                )
-                
-                if response.text:
-                    data = json.loads(response.text)
-                    score = max(-1.0, min(1.0, float(data.get("score", 0.0))))
-                    return SentimentResult(
-                        score=score,
-                        label=data.get("label", SentimentResult.score_to_label(score)),
-                        emotion=data.get("emotion", "neutral"),
-                        source=self.strategy_name,
-                        details={"provider": self.provider, "model": self.model},
-                    )
-            except Exception as e:
-                logger.warning("Gemini sentiment analysis failed", error=str(e))
+        except Exception as e:
+            logger.warning("Sentiment analysis via generate_content failed", error=str(e))
 
         # Fallback: use streaming with JSON parsing
         try:
@@ -621,15 +579,10 @@ class SentimentService:
         return self.AVAILABLE_METHODS
 
 
-# Global sentiment service instance
-_sentiment_service: SentimentService | None = None
+from functools import lru_cache
 
 
+@lru_cache
 def get_sentiment_service() -> SentimentService:
-    """Get or create the global sentiment service instance."""
-    global _sentiment_service
-    
-    if _sentiment_service is None:
-        _sentiment_service = SentimentService()
-    
-    return _sentiment_service
+    """Get or create the sentiment service instance (cached)."""
+    return SentimentService()

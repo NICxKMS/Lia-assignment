@@ -668,7 +668,6 @@ class CacheService:
             "id": int(data["id"]) if "id" in data else None,
             "email": data.get("email"),
             "username": data.get("username"),
-            "hashed_password": data.get("hashed_password"),
             "created_at": data.get("created_at"),
         }
 
@@ -685,7 +684,6 @@ class CacheService:
             "id": str(user_data["id"]),
             "email": user_data["email"],
             "username": user_data["username"],
-            "hashed_password": user_data["hashed_password"],
             "created_at": user_data.get("created_at", ""),
         }
         
@@ -781,15 +779,10 @@ class CacheService:
             return False
 
 
-# Global cache service instance
-_cache_service: CacheService | None = None
+from functools import lru_cache
 
 
+@lru_cache
 def get_cache_service() -> CacheService:
-    """Get or create the global cache service instance."""
-    global _cache_service
-    
-    if _cache_service is None:
-        _cache_service = CacheService()
-    
-    return _cache_service
+    """Get or create the cache service instance (cached)."""
+    return CacheService()

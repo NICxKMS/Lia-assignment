@@ -1,0 +1,11 @@
+{
+	"servers": {
+		"vexp": {
+			"type": "stdio",
+			"command": "C:\\Users\\Nicx\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe",
+			"args": [
+				"c:\\Users\\Nicx\\.vscode\\extensions\\vexp.vexp-vscode-1.2.12\\dist\\mcp-server.cjs"
+			]
+		}
+	}
+}

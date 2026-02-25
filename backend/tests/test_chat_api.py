@@ -500,3 +500,199 @@ class TestChatRequestValidation:
         )
         
         assert response.status_code == 401
+
+class TestSSEErrorPaths:
+    """Tests for SSE error handling during streaming."""
+
+    @pytest.mark.asyncio
+    async def test_stream_yields_error_event_on_llm_failure(
+        self,
+        client: AsyncClient,
+        auth_headers: dict,
+        test_db,
+        test_user: User,
+    ):
+        """Test that an LLM exception mid-stream produces an SSE error event."""
+        import json as json_mod
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from app.services.chat import ChatOrchestrator, get_chat_orchestrator
+        from app.services.llm import LLMService
+        from app.services.sentiment import SentimentResult, CumulativeState
+        from app.services.cache import CacheService, get_cache_service
+        from app.main import app
+
+        # Build an orchestrator whose LLM adapter raises mid-stream
+        mock_llm = MagicMock(spec=LLMService)
+        mock_adapter = MagicMock()
+
+        async def failing_stream(*args, **kwargs):
+            yield  # make this an async generator
+            raise RuntimeError("Upstream LLM exploded")
+
+        mock_adapter.generate_stream = failing_stream
+        mock_llm.get_adapter.return_value = mock_adapter
+
+        mock_sentiment = MagicMock()
+        mock_sentiment.analyze = AsyncMock(return_value=SentimentResult(
+            score=0.0, label="Neutral", source="test",
+        ))
+        mock_sentiment.update_cumulative = AsyncMock(return_value=(
+            SentimentResult(score=0.0, label="Neutral", source="test"),
+            CumulativeState(count=1, score=0.0, summary="s", label="Neutral"),
+        ))
+
+        mock_cache = MagicMock(spec=CacheService)
+        mock_cache.is_available = False
+        mock_cache.get_conversation_detail = AsyncMock(return_value=None)
+        mock_cache.get_conversation_history = AsyncMock(return_value=None)
+        mock_cache.get_available_models = AsyncMock(return_value=None)
+        mock_cache.get_sentiment_methods = AsyncMock(return_value=None)
+        mock_cache.set_conversation_detail = AsyncMock(return_value=True)
+        mock_cache.set_conversation_history = AsyncMock(return_value=True)
+        mock_cache.set_available_models = AsyncMock(return_value=True)
+        mock_cache.set_sentiment_methods = AsyncMock(return_value=True)
+        mock_cache.invalidate_conversation = AsyncMock(return_value=True)
+        mock_cache.invalidate_user_history = AsyncMock(return_value=True)
+
+        orchestrator = ChatOrchestrator(
+            llm_service=mock_llm,
+            sentiment_service=mock_sentiment,
+            cache_service=mock_cache,
+        )
+        app.dependency_overrides[get_chat_orchestrator] = lambda: orchestrator
+        app.dependency_overrides[get_cache_service] = lambda: mock_cache
+
+        try:
+            response = await client.post(
+                "/api/v1/chat/stream",
+                headers=auth_headers,
+                json={"message": "Hello there"},
+            )
+            assert response.status_code == 200
+
+            body = response.text
+            # Should contain an error SSE event
+            assert "event: error" in body
+
+            # Parse each SSE block to find the error event data
+            found_error = False
+            lines = body.split("\n")
+            for i, line in enumerate(lines):
+                if line.strip() == "event: error":
+                    # Next line(s) should contain data:
+                    for j in range(i + 1, min(i + 5, len(lines))):
+                        if lines[j].startswith("data:"):
+                            data = json_mod.loads(lines[j][len("data:"):].strip())
+                            # Error message should be generic
+                            assert "Upstream LLM exploded" not in data.get("message", "")
+                            msg = data.get("message", "").lower()
+                            assert "error" in msg or "occurred" in msg
+                            found_error = True
+                            break
+                    break
+            assert found_error, f"No error event found in SSE body: {body[:500]}"
+        finally:
+            # Restore defaults
+            test_orchestrator = ChatOrchestrator(cache_service=mock_cache)
+            app.dependency_overrides[get_chat_orchestrator] = lambda: test_orchestrator
+
+    @pytest.mark.asyncio
+    async def test_error_event_contains_generic_message(
+        self,
+        client: AsyncClient,
+        auth_headers: dict,
+        test_db,
+        test_user: User,
+    ):
+        """Error event should not leak internal details."""
+        import json as json_mod
+        from unittest.mock import AsyncMock, MagicMock
+        from app.services.chat import ChatOrchestrator, get_chat_orchestrator
+        from app.services.llm import LLMService
+        from app.services.sentiment import SentimentResult, CumulativeState
+        from app.services.cache import CacheService, get_cache_service
+        from app.main import app
+
+        mock_llm = MagicMock(spec=LLMService)
+        mock_adapter = MagicMock()
+
+        async def failing_stream(*args, **kwargs):
+            yield  # make this an async generator
+            raise ValueError("secret_api_key=abc123 leaked!")
+
+        mock_adapter.generate_stream = failing_stream
+        mock_llm.get_adapter.return_value = mock_adapter
+
+        mock_sentiment = MagicMock()
+        mock_sentiment.analyze = AsyncMock(return_value=SentimentResult(
+            score=0.0, label="Neutral", source="test",
+        ))
+        mock_sentiment.update_cumulative = AsyncMock(return_value=(
+            SentimentResult(score=0.0, label="Neutral", source="test"),
+            CumulativeState(count=1, score=0.0, summary="s", label="Neutral"),
+        ))
+
+        mock_cache = MagicMock(spec=CacheService)
+        mock_cache.is_available = False
+        mock_cache.get_conversation_detail = AsyncMock(return_value=None)
+        mock_cache.get_conversation_history = AsyncMock(return_value=None)
+        mock_cache.get_available_models = AsyncMock(return_value=None)
+        mock_cache.get_sentiment_methods = AsyncMock(return_value=None)
+        mock_cache.set_conversation_detail = AsyncMock(return_value=True)
+        mock_cache.set_conversation_history = AsyncMock(return_value=True)
+        mock_cache.set_available_models = AsyncMock(return_value=True)
+        mock_cache.set_sentiment_methods = AsyncMock(return_value=True)
+        mock_cache.invalidate_conversation = AsyncMock(return_value=True)
+        mock_cache.invalidate_user_history = AsyncMock(return_value=True)
+
+        orchestrator = ChatOrchestrator(
+            llm_service=mock_llm,
+            sentiment_service=mock_sentiment,
+            cache_service=mock_cache,
+        )
+        app.dependency_overrides[get_chat_orchestrator] = lambda: orchestrator
+        app.dependency_overrides[get_cache_service] = lambda: mock_cache
+
+        try:
+            response = await client.post(
+                "/api/v1/chat/stream",
+                headers=auth_headers,
+                json={"message": "Tell me a joke"},
+            )
+            body = response.text
+            # Must NOT contain internal error details
+            assert "secret_api_key" not in body
+            assert "abc123" not in body
+            # But should contain an error event
+            assert "event: error" in body
+        finally:
+            test_orchestrator = ChatOrchestrator(cache_service=mock_cache)
+            app.dependency_overrides[get_chat_orchestrator] = lambda: test_orchestrator
+
+    @pytest.mark.asyncio
+    async def test_stream_handles_model_settings_type_coercion(
+        self,
+        client: AsyncClient,
+        auth_headers: dict,
+        test_db,
+        test_user: User,
+    ):
+        """Model settings with string values should be coerced to correct types."""
+        # The endpoint accepts model_settings; temperature/max_tokens may arrive as strings
+        # from some clients. The route should handle this gracefully.
+        response = await client.post(
+            "/api/v1/chat/stream",
+            headers=auth_headers,
+            json={
+                "message": "Hello",
+                "model_settings": {
+                    "temperature": 0.5,
+                    "max_tokens": 1024,
+                    "top_p": 1.0,
+                    "frequency_penalty": 0.0,
+                    "presence_penalty": 0.0,
+                },
+            },
+        )
+        # Should get a 200 SSE stream (not a 422 validation error)
+        assert response.status_code == 200

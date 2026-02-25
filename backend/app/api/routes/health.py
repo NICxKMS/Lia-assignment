@@ -26,7 +26,7 @@ except ImportError:
     resource = None  # type: ignore
     HAS_RESOURCE = False
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import JSONResponse
 
 from app.api.schemas import CreatorInfo, HealthResponse, ServiceHealth
@@ -596,6 +596,9 @@ async def system_info() -> dict[str, Any]:
     """
     settings = get_settings()
     
+    if not settings.debug:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    
     return {
         "created_by": CREATOR_INFO,
         "application": {
@@ -623,7 +626,10 @@ async def system_info_summary() -> dict[str, Any]:
     Lighter-weight alternative to /health/info for quick checks.
     """
     settings = get_settings()
-    
+
+    if not settings.debug:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+
     return {
         "created_by": CREATOR_INFO,
         "application": {
