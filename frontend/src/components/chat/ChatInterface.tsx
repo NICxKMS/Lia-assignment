@@ -73,8 +73,6 @@ export interface ChatMessage extends BaseChatMessage {
 	error?: boolean;
 }
 
-export type { ChatMessage };
-
 // ============ Main Component ============
 
 const ChatInterface: React.FC = () => {
@@ -229,7 +227,7 @@ const ChatInterface: React.FC = () => {
 		if (chatMessages.length > 0 && !selectedMessageId) {
 			setSelectedMessageId(chatMessages[chatMessages.length - 1].id);
 		}
-	}, [chatMessages, selectedMessageId]);
+	}, [chatMessages, selectedMessageId, setSelectedMessageId]);
 
 	// Send message - use refs for stable callback
 	const handleSubmit = useCallback(
@@ -246,7 +244,7 @@ const ChatInterface: React.FC = () => {
 			});
 			setInput("");
 		},
-		[input, isStreaming, sendMessage],
+		[input, isStreaming, sendMessage, conversationIdRef],
 	);
 
 	// Regenerate last response - use refs for stable callback
@@ -276,7 +274,7 @@ const ChatInterface: React.FC = () => {
 			conversationId: conversationIdRef.current,
 			modelSettings: modelSettingsRef.current,
 		});
-	}, [chatMessages, setChatMessages, sendMessage]);
+	}, [chatMessages, setChatMessages, sendMessage, conversationIdRef]);
 
 	// Derived data - memoized
 	const selectedMessage = useMemo(

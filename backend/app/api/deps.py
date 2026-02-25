@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.core.exceptions import AuthenticationError, RateLimitError
+from app.core.exceptions import RateLimitError
 from app.core.logging import get_logger
 from app.core.security import decode_access_token
 from app.core.tasks import create_background_task
@@ -30,11 +30,11 @@ async def get_current_user(
     cache: Annotated[CacheService, Depends(get_cache_service)],
 ) -> User:
     """Get the current authenticated user from JWT token.
-    
+
     Reads token from httpOnly cookie first (browser clients),
     falls back to Authorization header (API clients).
     Uses cache-aside pattern to reduce database lookups.
-    
+
     Raises:
         HTTPException: If authentication fails
     """
@@ -85,7 +85,7 @@ async def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid user identifier",
             headers={"WWW-Authenticate": "Bearer"},
-        )
+        ) from None
 
     # Try cache first for user data
     if cache.is_available:
@@ -106,7 +106,7 @@ async def get_current_user(
     # Cache miss - fetch user from database
     result = await db.execute(select(User).where(User.id == user_id))
     db_user = result.scalar_one_or_none()
-    
+
     if db_user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -153,9 +153,9 @@ async def check_rate_limit(
     user: User | None = None,
 ) -> None:
     """Check general API rate limit.
-    
+
     Uses user ID if authenticated, otherwise client IP.
-    
+
     Raises:
         RateLimitError: If rate limit exceeded
     """
@@ -167,7 +167,7 @@ async def check_rate_limit(
         identifier = f"ip:{client_ip}"
 
     allowed, remaining = await rate_limiter.check_general_limit(identifier)
-    
+
     if not allowed:
         raise RateLimitError()
 
@@ -177,12 +177,12 @@ async def check_chat_rate_limit(
     rate_limiter: Annotated[RateLimitService, Depends(get_rate_limit_service)],
 ) -> None:
     """Check chat-specific rate limit.
-    
+
     Raises:
         RateLimitError: If rate limit exceeded
     """
     allowed, remaining = await rate_limiter.check_chat_limit(f"user:{user.id}")
-    
+
     if not allowed:
         raise RateLimitError()
 

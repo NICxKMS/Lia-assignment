@@ -9,13 +9,13 @@ Email: admin@nicx.me
 import asyncio
 import gc
 import multiprocessing
-import socket
-import threading
-from datetime import datetime, timezone
 import os
 import platform
+import socket
 import sys
+import threading
 import time
+from datetime import UTC, datetime
 from typing import Any
 
 # resource module is only available on Unix-like systems
@@ -25,6 +25,8 @@ try:
 except ImportError:
     resource = None  # type: ignore
     HAS_RESOURCE = False
+
+import contextlib
 
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import JSONResponse
@@ -37,7 +39,7 @@ from app.services.cache import get_cache_service
 router = APIRouter(tags=["Health"])
 
 # Track server start time for uptime calculation
-_server_start_time = datetime.now(timezone.utc)
+_server_start_time = datetime.now(UTC)
 
 # Creator Information
 CREATOR_INFO: dict[str, Any] = {
@@ -51,11 +53,11 @@ CREATOR_INFO: dict[str, Any] = {
 def _get_memory_info() -> dict[str, Any]:
     """Get process memory information."""
     memory_info: dict[str, Any] = {}
-    
+
     if HAS_RESOURCE and resource is not None:
         try:
             # Try to get resource usage on Unix-like systems
-            rusage = resource.getrusage(resource.RUSAGE_SELF)
+            rusage = resource.getrusage(resource.RUSAGE_SELF)  # type: ignore[attr-defined]
             memory_info["max_rss_kb"] = rusage.ru_maxrss
             memory_info["shared_memory_kb"] = rusage.ru_ixrss
             memory_info["unshared_data_kb"] = rusage.ru_idrss
@@ -68,7 +70,7 @@ def _get_memory_info() -> dict[str, Any]:
             memory_info["note"] = "Detailed memory info not available on this platform"
     else:
         memory_info["note"] = "Detailed memory info not available on Windows"
-    
+
     return memory_info
 
 
@@ -81,13 +83,13 @@ def _get_cpu_info() -> dict[str, Any]:
         "architecture": platform.machine(),
         "byte_order": sys.byteorder,
     }
-    
+
     try:
         cpu_info["physical_cores"] = multiprocessing.cpu_count()
         cpu_info["logical_cores"] = os.cpu_count() or multiprocessing.cpu_count()
     except (NotImplementedError, OSError):
         pass
-    
+
     # Platform-specific CPU info
     if platform.system() == "Linux":
         try:
@@ -99,7 +101,7 @@ def _get_cpu_info() -> dict[str, Any]:
                         break
         except (FileNotFoundError, PermissionError, OSError):
             pass
-    
+
     return cpu_info
 
 
@@ -150,17 +152,17 @@ def _get_process_info() -> dict[str, Any]:
         "thread_count": threading.active_count(),
         "threads": [t.name for t in threading.enumerate()],
     }
-    
+
     # User and group info (Unix-like systems)
     try:
-        process_info["uid"] = os.getuid()
-        process_info["gid"] = os.getgid()
-        process_info["euid"] = os.geteuid()
-        process_info["egid"] = os.getegid()
+        process_info["uid"] = os.getuid()  # type: ignore[attr-defined]
+        process_info["gid"] = os.getgid()  # type: ignore[attr-defined]
+        process_info["euid"] = os.geteuid()  # type: ignore[attr-defined]
+        process_info["egid"] = os.getegid()  # type: ignore[attr-defined]
     except AttributeError:
         # Windows doesn't have these
         pass
-    
+
     # File descriptors (Unix-like systems)
     try:
         fd_dir = f"/proc/{os.getpid()}/fd"
@@ -168,15 +170,15 @@ def _get_process_info() -> dict[str, Any]:
             process_info["open_file_descriptors"] = len(os.listdir(fd_dir))
     except (PermissionError, OSError):
         pass
-    
+
     # Resource limits
     if HAS_RESOURCE and resource is not None:
         try:
-            soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+            soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)  # type: ignore[attr-defined]
             process_info["file_descriptor_limit"] = {"soft": soft, "hard": hard}
         except (AttributeError, OSError):
             pass
-    
+
     return process_info
 
 
@@ -185,12 +187,10 @@ def _get_network_info() -> dict[str, Any]:
     network_info: dict[str, Any] = {
         "hostname": socket.gethostname(),
     }
-    
-    try:
+
+    with contextlib.suppress(OSError):
         network_info["fqdn"] = socket.getfqdn()
-    except (socket.error, OSError):
-        pass
-    
+
     # Get IP addresses
     try:
         network_info["ip_addresses"] = []
@@ -205,9 +205,9 @@ def _get_network_info() -> dict[str, Any]:
                     "address": ip,
                     "family": "IPv6" if addr[0] == socket.AF_INET6 else "IPv4",
                 })
-    except (socket.error, OSError):
+    except OSError:
         pass
-    
+
     return network_info
 
 
@@ -220,24 +220,24 @@ def _get_environment_info() -> dict[str, Any]:
         "NODE_ENV", "ENVIRONMENT", "RENDER", "RENDER_SERVICE_NAME",
         "RENDER_INSTANCE_ID", "RENDER_GIT_COMMIT", "RENDER_GIT_BRANCH",
     ]
-    
+
     env_info: dict[str, Any] = {
         "variables_count": len(os.environ),
         "python_path_entries": len(sys.path),
         "safe_variables": {},
     }
-    
+
     for var in safe_vars:
         if var in os.environ:
             env_info["safe_variables"][var] = os.environ[var]
-    
+
     return env_info
 
 
 def _get_runtime_info() -> dict[str, Any]:
     """Get runtime information about loaded modules and GC."""
     gc_stats = gc.get_stats()
-    
+
     return {
         "loaded_modules_count": len(sys.modules),
         "sys_path_entries": len(sys.path),
@@ -273,7 +273,7 @@ def _get_platform_info() -> dict[str, Any]:
         "platform": platform.platform(),
         "node": platform.node(),
     }
-    
+
     # Linux-specific info
     if platform.system() == "Linux":
         try:
@@ -287,27 +287,27 @@ def _get_platform_info() -> dict[str, Any]:
                     platform_info["os_release"] = os_release
         except (PermissionError, OSError):
             pass
-        
+
         # Kernel info
         try:
             with open("/proc/version") as f:
                 platform_info["kernel_version"] = f.read().strip()
         except (FileNotFoundError, PermissionError, OSError):
             pass
-    
+
     # macOS-specific info
     if platform.system() == "Darwin":
         mac_ver = platform.mac_ver()
         if mac_ver[0]:
             platform_info["macos_version"] = mac_ver[0]
             platform_info["macos_version_info"] = mac_ver
-    
+
     # Windows-specific info
     if platform.system() == "Windows":
         win_ver = platform.win32_ver()
         platform_info["windows_version"] = win_ver
         platform_info["windows_edition"] = platform.win32_edition() if hasattr(platform, "win32_edition") else None
-    
+
     return platform_info
 
 
@@ -329,13 +329,13 @@ def _get_system_info() -> dict[str, Any]:
 
 def _get_uptime() -> dict[str, Any]:
     """Calculate server uptime."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     delta = now - _server_start_time
-    
+
     days = delta.days
     hours, remainder = divmod(delta.seconds, 3600)
     minutes, seconds = divmod(remainder, 60)
-    
+
     return {
         "started_at": _server_start_time.isoformat(),
         "uptime_seconds": int(delta.total_seconds()),
@@ -369,7 +369,7 @@ def _get_full_system_info() -> dict[str, Any]:
 async def root() -> dict[str, Any]:
     """
     Root endpoint with API information.
-    
+
     Returns basic API metadata including:
     - Application name and version
     - Current status
@@ -378,25 +378,25 @@ async def root() -> dict[str, Any]:
     - Creator information
     """
     settings = get_settings()
-    
+
     return {
         "created_by": CREATOR_INFO,
         "name": settings.app_name,
         "version": settings.app_version,
         "status": "healthy",
         "environment": settings.environment,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "documentation": "/docs",
     }
 
 
 async def _timed_health_check(
-    name: str, 
-    check_fn: Any, 
+    name: str,
+    check_fn: Any,
     timeout: float = 5.0
 ) -> tuple[str, bool, float, str | None]:
     """Execute a health check and measure its latency with timeout.
-    
+
     Returns:
         Tuple of (name, healthy, latency_ms, error_message)
     """
@@ -405,7 +405,7 @@ async def _timed_health_check(
         result = await asyncio.wait_for(check_fn(), timeout=timeout)
         latency = (time.perf_counter() - start) * 1000
         return (name, result, latency, None)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         latency = (time.perf_counter() - start) * 1000
         return (name, False, latency, f"Health check timed out after {timeout}s")
     except Exception as e:
@@ -422,17 +422,17 @@ async def _timed_health_check(
 async def health_check() -> HealthResponse:
     """
     Comprehensive health check endpoint for monitoring.
-    
+
     Checks all critical services:
     - **Database**: PostgreSQL connectivity and response time
     - **Cache**: Redis/Upstash connectivity and response time
-    
+
     Returns:
     - Overall system status (healthy/degraded/unhealthy)
     - Individual service status with latency metrics
     - System uptime information
     - Creator information
-    
+
     Health checks are run in parallel with accurate per-service latency tracking.
     """
     settings = get_settings()
@@ -440,24 +440,24 @@ async def health_check() -> HealthResponse:
     overall_status = "healthy"
 
     cache_service = get_cache_service()
-    
+
     # Run health checks in parallel with accurate latency tracking
     tasks = [_timed_health_check("database", check_db_health)]
-    
+
     if cache_service.is_available:
         tasks.append(_timed_health_check("cache", cache_service.check_health))
-    
+
     # Execute all checks in parallel
     results = await asyncio.gather(*tasks, return_exceptions=True)
-    
+
     # Process results - type narrowing for mypy
     for result in results:
         if isinstance(result, BaseException):
             continue
-        
+
         # result is now tuple[str, bool, float, str | None]
         name, healthy, latency, error = result
-        
+
         if name == "database":
             details: dict[str, Any] = {"type": "postgresql"}
             if error:
@@ -469,7 +469,7 @@ async def health_check() -> HealthResponse:
             )
             if not healthy:
                 overall_status = "unhealthy"
-                
+
         elif name == "cache":
             cache_details: dict[str, Any] = {"type": "redis", "provider": "upstash"}
             if error:
@@ -481,7 +481,7 @@ async def health_check() -> HealthResponse:
             )
             if not healthy and overall_status == "healthy":
                 overall_status = "degraded"
-    
+
     # Handle cache not configured case
     if "cache" not in services:
         services["cache"] = ServiceHealth(
@@ -494,7 +494,7 @@ async def health_check() -> HealthResponse:
     return HealthResponse(
         created_by=CreatorInfo(**CREATOR_INFO),
         status=overall_status,
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
         version=settings.app_version,
         services=services,
     )
@@ -508,16 +508,16 @@ async def health_check() -> HealthResponse:
 async def liveness() -> dict[str, Any]:
     """
     Kubernetes liveness probe endpoint.
-    
+
     Returns 200 if the service process is running.
     This is a lightweight check that doesn't verify external dependencies.
-    
+
     Use this for container orchestration to determine if the process needs restart.
     """
     return {
         "created_by": CREATOR_INFO,
         "status": "ok",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
     }
 
 
@@ -529,16 +529,16 @@ async def liveness() -> dict[str, Any]:
 async def readiness() -> JSONResponse:
     """
     Kubernetes readiness probe endpoint.
-    
+
     Returns 200 if the service is ready to handle requests.
     Checks critical dependencies (database) with timeout.
-    
+
     Use this for load balancer routing decisions.
     Returns 503 Service Unavailable if not ready.
     """
     try:
         db_healthy = await asyncio.wait_for(check_db_health(), timeout=5.0)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         return JSONResponse(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             content={
@@ -546,10 +546,10 @@ async def readiness() -> JSONResponse:
                 "status": "not_ready",
                 "reason": "database_timeout",
                 "message": "Database health check timed out after 5s",
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             },
         )
-    
+
     if not db_healthy:
         return JSONResponse(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -558,16 +558,16 @@ async def readiness() -> JSONResponse:
                 "status": "not_ready",
                 "reason": "database_unavailable",
                 "message": "Database connection failed",
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             },
         )
-    
+
     return JSONResponse(
         status_code=status.HTTP_200_OK,
         content={
             "created_by": CREATOR_INFO,
             "status": "ready",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
         },
     )
 
@@ -580,7 +580,7 @@ async def readiness() -> JSONResponse:
 async def system_info() -> dict[str, Any]:
     """
     Get exhaustive system and runtime information.
-    
+
     Returns comprehensive details about:
     - **Application**: Name, version, environment
     - **Platform**: OS details, kernel, architecture
@@ -595,10 +595,10 @@ async def system_info() -> dict[str, Any]:
     - **Creator**: Project author information
     """
     settings = get_settings()
-    
+
     if not settings.debug:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
-    
+
     return {
         "created_by": CREATOR_INFO,
         "application": {
@@ -610,7 +610,7 @@ async def system_info() -> dict[str, Any]:
         },
         "system": _get_full_system_info(),
         "uptime": _get_uptime(),
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
     }
 
 
@@ -622,7 +622,7 @@ async def system_info() -> dict[str, Any]:
 async def system_info_summary() -> dict[str, Any]:
     """
     Get a brief summary of system information.
-    
+
     Lighter-weight alternative to /health/info for quick checks.
     """
     settings = get_settings()
@@ -639,7 +639,7 @@ async def system_info_summary() -> dict[str, Any]:
         },
         "system": _get_system_info(),
         "uptime": _get_uptime(),
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
     }
 
 
@@ -651,7 +651,7 @@ async def system_info_summary() -> dict[str, Any]:
 async def database_health() -> JSONResponse:
     """
     Check database connectivity and response time.
-    
+
     Returns detailed database health information including:
     - Connection status
     - Response latency
@@ -659,19 +659,19 @@ async def database_health() -> JSONResponse:
     - Creator information
     """
     name, healthy, latency, error = await _timed_health_check("database", check_db_health)
-    
+
     response_data: dict[str, Any] = {
         "created_by": CREATOR_INFO,
         "service": "database",
         "type": "postgresql",
         "status": "healthy" if healthy else "unhealthy",
         "latency_ms": round(latency, 2),
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
     }
-    
+
     if error:
         response_data["error"] = error
-    
+
     status_code = status.HTTP_200_OK if healthy else status.HTTP_503_SERVICE_UNAVAILABLE
     return JSONResponse(status_code=status_code, content=response_data)
 
@@ -684,16 +684,16 @@ async def database_health() -> JSONResponse:
 async def cache_health() -> JSONResponse:
     """
     Check cache (Redis/Upstash) connectivity and response time.
-    
+
     Returns detailed cache health information including:
-    - Connection status  
+    - Connection status
     - Response latency
     - Provider information
     - Error details if unhealthy
     - Creator information
     """
     cache_service = get_cache_service()
-    
+
     if not cache_service.is_available:
         return JSONResponse(
             status_code=status.HTTP_200_OK,  # Cache is optional, degraded is OK
@@ -704,12 +704,12 @@ async def cache_health() -> JSONResponse:
                 "provider": "not configured",
                 "status": "degraded",
                 "message": "Cache service is not configured",
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             },
         )
-    
+
     name, healthy, latency, error = await _timed_health_check("cache", cache_service.check_health)
-    
+
     response_data: dict[str, Any] = {
         "created_by": CREATOR_INFO,
         "service": "cache",
@@ -717,10 +717,10 @@ async def cache_health() -> JSONResponse:
         "provider": "upstash",
         "status": "healthy" if healthy else "degraded",
         "latency_ms": round(latency, 2),
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
     }
-    
+
     if error:
         response_data["error"] = error
-    
+
     return JSONResponse(status_code=status.HTTP_200_OK, content=response_data)

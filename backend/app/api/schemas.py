@@ -6,14 +6,13 @@ from typing import Any
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
-
 # ============================================================
 # Authentication Schemas
 # ============================================================
 
 class UserCreate(BaseModel):
     """Schema for user registration."""
-    
+
     email: EmailStr
     username: str = Field(..., min_length=3, max_length=50, pattern=r"^[a-zA-Z0-9_-]+$")
     password: str = Field(..., min_length=8, max_length=100)
@@ -32,14 +31,14 @@ class UserCreate(BaseModel):
 
 class UserLogin(BaseModel):
     """Schema for user login."""
-    
+
     email: EmailStr
     password: str
 
 
 class UserResponse(BaseModel):
     """Schema for user data in responses."""
-    
+
     id: int
     email: str
     username: str
@@ -51,7 +50,7 @@ class UserResponse(BaseModel):
 
 class TokenResponse(BaseModel):
     """Schema for authentication token response."""
-    
+
     access_token: str
     token_type: str = "bearer"
     expires_in: int = Field(description="Token expiration time in seconds")
@@ -64,7 +63,7 @@ class TokenResponse(BaseModel):
 
 class SentimentData(BaseModel):
     """Schema for sentiment analysis result."""
-    
+
     score: float = Field(..., ge=-1.0, le=1.0)
     label: str = Field(..., pattern=r"^(Positive|Negative|Neutral)$")
     emotion: str | None = None
@@ -74,7 +73,7 @@ class SentimentData(BaseModel):
 
 class DualSentiment(BaseModel):
     """Schema for message and cumulative sentiment."""
-    
+
     message: SentimentData | None = None
     cumulative: SentimentData | None = None
 
@@ -85,14 +84,14 @@ class DualSentiment(BaseModel):
 
 class MessagePart(BaseModel):
     """Schema for AI SDK message part."""
-    
+
     type: str
     text: str | None = Field(default=None, max_length=10000)
 
 
 class UIMessage(BaseModel):
     """Schema for AI SDK UI message format."""
-    
+
     id: str
     role: str
     parts: list[MessagePart]
@@ -100,7 +99,7 @@ class UIMessage(BaseModel):
 
 class ModelSettings(BaseModel):
     """Schema for model generation settings."""
-    
+
     temperature: float = Field(default=0.7, ge=0.0, le=2.0, description="Controls randomness (0=deterministic, 2=very random)")
     max_tokens: int = Field(default=2048, ge=1, le=32000, description="Maximum tokens in response")
     top_p: float = Field(default=1.0, ge=0.0, le=1.0, description="Nucleus sampling threshold")
@@ -110,13 +109,13 @@ class ModelSettings(BaseModel):
 
 class ChatRequest(BaseModel):
     """Schema for chat request supporting multiple formats."""
-    
+
     # Legacy format
     message: str | None = Field(default=None, min_length=1, max_length=10000)
-    
+
     # AI SDK format
     messages: list[UIMessage] | None = Field(default=None, max_length=50)
-    
+
     # Common fields
     conversation_id: str | None = None
     provider: str = Field(default="gemini", pattern=r"^(gemini|openai)$")
@@ -125,10 +124,10 @@ class ChatRequest(BaseModel):
         default="llm_separate",
         pattern=r"^(nlp_api|llm_separate|structured)$",
     )
-    
+
     # Model settings
     model_settings: ModelSettings | None = None
-    
+
     # AI SDK extras (accepted but ignored)
     id: str | None = None
     trigger: str | None = None
@@ -137,7 +136,7 @@ class ChatRequest(BaseModel):
         """Extract the user message from either format."""
         if self.message:
             return self.message
-        
+
         if self.messages:
             # Get the last user message from the messages array
             for msg in reversed(self.messages):
@@ -146,7 +145,7 @@ class ChatRequest(BaseModel):
                         part.text for part in msg.parts
                         if part.type == "text" and part.text
                     )
-        
+
         raise ValueError("No message content provided")
 
 
@@ -156,7 +155,7 @@ class ChatRequest(BaseModel):
 
 class MessageResponse(BaseModel):
     """Schema for message in responses."""
-    
+
     id: int
     role: str
     content: str
@@ -170,7 +169,7 @@ class MessageResponse(BaseModel):
 
 class ConversationSummary(BaseModel):
     """Schema for conversation summary in list."""
-    
+
     id: str
     title: str | None = None
     created_at: datetime
@@ -183,7 +182,7 @@ class ConversationSummary(BaseModel):
 
 class ConversationDetail(BaseModel):
     """Schema for full conversation with messages."""
-    
+
     id: str
     title: str | None = None
     created_at: datetime
@@ -200,7 +199,7 @@ class ConversationDetail(BaseModel):
 
 class ConversationRename(BaseModel):
     """Schema for renaming a conversation."""
-    
+
     title: str = Field(..., min_length=1, max_length=255)
 
 
@@ -210,14 +209,14 @@ class ConversationRename(BaseModel):
 
 class SuccessResponse(BaseModel):
     """Schema for generic success response."""
-    
+
     success: bool = True
     message: str
 
 
 class DeleteResponse(BaseModel):
     """Schema for delete operation response."""
-    
+
     success: bool = True
     message: str
     deleted_count: int | None = None
@@ -225,7 +224,7 @@ class DeleteResponse(BaseModel):
 
 class ErrorResponse(BaseModel):
     """Schema for error responses."""
-    
+
     error: dict[str, Any] = Field(
         ...,
         json_schema_extra={"example": {"message": "Error description", "details": {}}},
@@ -238,7 +237,7 @@ class ErrorResponse(BaseModel):
 
 class CreatorInfo(BaseModel):
     """Schema for creator/author information."""
-    
+
     name: str
     github: str
     linkedin: str
@@ -247,7 +246,7 @@ class CreatorInfo(BaseModel):
 
 class ServiceHealth(BaseModel):
     """Schema for individual service health."""
-    
+
     status: str = Field(..., pattern=r"^(healthy|unhealthy|degraded)$")
     latency_ms: float | None = None
     details: dict[str, Any] | None = None
@@ -255,7 +254,7 @@ class ServiceHealth(BaseModel):
 
 class HealthResponse(BaseModel):
     """Schema for health check response."""
-    
+
     created_by: CreatorInfo
     status: str = Field(..., pattern=r"^(healthy|unhealthy|degraded)$")
     timestamp: datetime

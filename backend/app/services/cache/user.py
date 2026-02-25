@@ -21,10 +21,10 @@ class UserCacheMixin(BaseCacheOperations):
         """Get cached user data using Hash (efficient field access)."""
         key = self._make_key(KEY_PREFIX_USER, user_id, "data")
         data = await self.hgetall(key)
-        
+
         if not data:
             return None
-        
+
         # Convert string values back to proper types
         return {
             "id": int(data["id"]) if "id" in data else None,
@@ -41,7 +41,7 @@ class UserCacheMixin(BaseCacheOperations):
     ) -> bool:
         """Cache user data using Hash."""
         key = self._make_key(KEY_PREFIX_USER, user_id, "data")
-        
+
         # Convert all values to strings for Redis hash
         mapping = {
             "id": str(user_data["id"]),
@@ -50,14 +50,14 @@ class UserCacheMixin(BaseCacheOperations):
             "hashed_password": user_data["hashed_password"],
             "created_at": user_data.get("created_at", ""),
         }
-        
+
         success = await self.hset(key, mapping, TTL_USER_DATA)
-        
+
         # Also set email index for fast login lookup
         if success:
             email_key = self._make_key(KEY_PREFIX_EMAIL_INDEX, user_data["email"])
             await self.set(email_key, str(user_id), TTL_USER_DATA)
-        
+
         return success
 
     async def get_user_by_email(self, email: str) -> dict[str, Any] | None:
@@ -65,10 +65,10 @@ class UserCacheMixin(BaseCacheOperations):
         # Look up user_id from email index
         email_key = self._make_key(KEY_PREFIX_EMAIL_INDEX, email)
         user_id_str = await self.get(email_key)
-        
+
         if not user_id_str:
             return None
-        
+
         try:
             user_id = int(user_id_str)
             return await self.get_user_data(user_id)
@@ -79,12 +79,12 @@ class UserCacheMixin(BaseCacheOperations):
         """Invalidate user data cache and email index."""
         key = self._make_key(KEY_PREFIX_USER, user_id, "data")
         success = await self.delete(key)
-        
+
         # Also delete email index if provided
         if email:
             email_key = self._make_key(KEY_PREFIX_EMAIL_INDEX, email)
             await self.delete(email_key)
-        
+
         return success
 
 

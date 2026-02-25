@@ -2,7 +2,8 @@
 
 import asyncio
 import json
-from typing import Any, Coroutine, TypeVar
+from collections.abc import Coroutine
+from typing import Any, TypeVar
 
 from upstash_redis.asyncio import Redis
 
@@ -21,7 +22,7 @@ class BaseCacheOperations:
         """Initialize the cache service."""
         settings = get_settings()
         self._client: Redis | None = None
-        
+
         if settings.redis_available:
             try:
                 self._client = Redis(
@@ -50,7 +51,7 @@ class BaseCacheOperations:
         """Get a value from cache."""
         if not self.is_available:
             return None
-        
+
         try:
             result = await self._client.get(key)  # type: ignore
             return result if isinstance(result, str) else None
@@ -67,7 +68,7 @@ class BaseCacheOperations:
         """Set a value in cache with optional TTL."""
         if not self.is_available:
             return False
-        
+
         try:
             if ttl:
                 await self._client.set(key, value, ex=ttl)  # type: ignore
@@ -82,7 +83,7 @@ class BaseCacheOperations:
         """Delete a value from cache."""
         if not self.is_available:
             return False
-        
+
         try:
             await self._client.delete(key)  # type: ignore
             return True
@@ -92,13 +93,13 @@ class BaseCacheOperations:
 
     async def delete_pattern(self, pattern: str) -> int:
         """Delete all keys matching a pattern.
-        
+
         Note: Upstash REST API doesn't support SCAN, so this is limited.
         For production, consider using specific key deletion.
         """
         if not self.is_available:
             return 0
-        
+
         try:
             # Upstash supports KEYS command but use cautiously
             keys = await self._client.keys(pattern)  # type: ignore
@@ -139,7 +140,7 @@ class BaseCacheOperations:
         cache_operation: Coroutine[Any, Any, bool],
     ) -> T:
         """Execute DB and cache writes in parallel for write-through caching.
-        
+
         DB operation result is returned; cache failures are logged but don't fail the request.
         """
         db_result, cache_result = await asyncio.gather(
@@ -147,15 +148,15 @@ class BaseCacheOperations:
             cache_operation,
             return_exceptions=True,
         )
-        
+
         # Log cache failures but don't propagate
         if isinstance(cache_result, Exception):
             logger.debug("Write-through cache operation failed", error=str(cache_result))
-        
+
         # Re-raise DB exceptions
         if isinstance(db_result, BaseException):
             raise db_result
-        
+
         return db_result  # type: ignore[no-any-return]
 
     # ========== Hash operations ==========
@@ -261,10 +262,10 @@ class BaseCacheOperations:
             return False
 
     async def zrange(
-        self, 
-        key: str, 
-        start: int, 
-        stop: int, 
+        self,
+        key: str,
+        start: int,
+        stop: int,
         desc: bool = False,
         with_scores: bool = False,
     ) -> list[str] | list[tuple[str, float]]:
@@ -298,7 +299,7 @@ class BaseCacheOperations:
         """Get multiple values from cache in a single request."""
         if not self.is_available or not keys:
             return [None] * len(keys)
-        
+
         try:
             results = await self._client.mget(*keys)  # type: ignore
             return [r if isinstance(r, str) else None for r in results]
@@ -310,7 +311,7 @@ class BaseCacheOperations:
         """Set multiple values in cache. Note: TTL applied per-key via pipeline."""
         if not self.is_available or not mapping:
             return False
-        
+
         try:
             if ttl:
                 async with self._client.pipeline() as pipe:  # type: ignore[union-attr]
@@ -330,14 +331,14 @@ class BaseCacheOperations:
         """Check Redis connectivity with timeout."""
         if not self.is_available:
             return False
-        
+
         try:
             result = await asyncio.wait_for(
                 self._client.ping(),  # type: ignore
                 timeout=timeout
             )
             return bool(result)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.error("Redis health check timed out", timeout=timeout)
             return False
         except Exception as e:

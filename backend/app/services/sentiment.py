@@ -11,7 +11,8 @@ Also supports incremental cumulative sentiment with rolling summary.
 import asyncio
 import json
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from functools import lru_cache
 from typing import Any
 
 from google.cloud import language_v1
@@ -26,7 +27,7 @@ logger = get_logger(__name__)
 @dataclass
 class SentimentResult:
     """Result of sentiment analysis."""
-    
+
     score: float  # -1.0 to 1.0
     label: str  # 'Positive', 'Negative', 'Neutral'
     source: str  # Method used for analysis
@@ -75,7 +76,7 @@ class CumulativeState:
     score: float = 0.0
     count: int = 0
     label: str = "Neutral"
-    
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "summary": self.summary,
@@ -83,7 +84,7 @@ class CumulativeState:
             "count": self.count,
             "label": self.label,
         }
-    
+
     @staticmethod
     def from_dict(data: dict[str, Any] | None) -> "CumulativeState":
         if not data:
@@ -98,7 +99,7 @@ class CumulativeState:
 
 class SentimentAnalysisSchema(BaseModel):
     """Schema for LLM sentiment analysis response."""
-    
+
     score: float
     label: str
     emotion: str
@@ -106,7 +107,7 @@ class SentimentAnalysisSchema(BaseModel):
 
 class IncrementalSentimentSchema(BaseModel):
     """Schema for incremental cumulative sentiment update."""
-    
+
     score: float
     label: str
     summary: str  # Updated summary incorporating new message
@@ -125,11 +126,11 @@ class SentimentStrategy(ABC):
 
 class IncrementalSentimentAnalyzer:
     """Analyzer for incremental cumulative sentiment with rolling summary.
-    
+
     Instead of re-analyzing all messages, this maintains a running summary
     that gets updated with each new message - O(1) per message.
     """
-    
+
     INCREMENTAL_PROMPT = '''You are a sentiment analyst tracking conversation sentiment over time.
 
 Given the previous conversation summary and a new user message, produce:
@@ -149,7 +150,7 @@ Respond with ONLY valid JSON:
 
     def __init__(self, llm_service: LLMService | None = None) -> None:
         self.llm_service = llm_service or get_llm_service()
-    
+
     async def update(
         self,
         new_message: str,
@@ -159,7 +160,7 @@ Respond with ONLY valid JSON:
         model: str = "gemini-2.5-flash-lite",
     ) -> tuple[SentimentResult, CumulativeState]:
         """Update cumulative sentiment with a new message.
-        
+
         Returns updated SentimentResult and new CumulativeState.
         """
         # Only Gemini supports the incremental JSON API used below.
@@ -172,7 +173,7 @@ Respond with ONLY valid JSON:
                 total = old_weight + new_weight
                 new_score = (current_state.score * old_weight + message_sentiment.score * new_weight) / total
                 new_label = SentimentResult.score_to_label(new_score)
-                
+
                 new_state = CumulativeState(
                     summary=current_state.summary,  # Keep old summary
                     score=new_score,
@@ -186,7 +187,7 @@ Respond with ONLY valid JSON:
                     source="incremental_fallback",
                 )
                 return result, new_state
-            
+
             # No per-message sentiment: just advance the count to keep state in sync.
             advanced_state = CumulativeState(
                 summary=current_state.summary,
@@ -217,7 +218,7 @@ Respond with ONLY valid JSON:
                 source="incremental",
             )
             return result, new_state
-        
+
         # Subsequent messages - use LLM to update summary
         prompt = self.INCREMENTAL_PROMPT.format(
             previous_summary=current_state.summary or "No previous context",
@@ -225,17 +226,17 @@ Respond with ONLY valid JSON:
             message_count=current_state.count,
             new_message=new_message[:1000],  # Limit message length
         )
-        
+
         try:
             adapter = self.llm_service.get_adapter(provider)
             response_text = await adapter.generate_content(prompt, model=model)
-            
+
             if response_text:
                 data = json.loads(response_text)
                 score = max(-1.0, min(1.0, float(data.get("score", 0.0))))
                 label = data.get("label", SentimentResult.score_to_label(score))
                 summary = data.get("summary", "")[:100]  # Cap summary length
-                
+
                 new_state = CumulativeState(
                     summary=summary,
                     score=score,
@@ -252,7 +253,7 @@ Respond with ONLY valid JSON:
                 return result, new_state
         except Exception as e:
             logger.debug("Incremental sentiment update failed, using weighted average", error=str(e))
-        
+
         # Fallback: weighted average if LLM fails
         if message_sentiment:
             old_weight = current_state.count
@@ -260,7 +261,7 @@ Respond with ONLY valid JSON:
             total = old_weight + new_weight
             new_score = (current_state.score * old_weight + message_sentiment.score * new_weight) / total
             new_label = SentimentResult.score_to_label(new_score)
-            
+
             new_state = CumulativeState(
                 summary=current_state.summary,  # Keep old summary
                 score=new_score,
@@ -274,7 +275,7 @@ Respond with ONLY valid JSON:
                 source="incremental_fallback",
             )
             return result, new_state
-        
+
         # No sentiment available - return current state
         unchanged_state = CumulativeState(
             summary=current_state.summary,
@@ -292,7 +293,7 @@ Respond with ONLY valid JSON:
 
 class GoogleCloudNLPStrategy(SentimentStrategy):
     """Sentiment analysis using Google Cloud Natural Language API.
-    
+
     Lazily initializes the client on first use to avoid blocking startup.
     Uses thread pool for non-blocking API calls.
     """
@@ -307,17 +308,17 @@ class GoogleCloudNLPStrategy(SentimentStrategy):
 
     async def _ensure_client(self) -> bool:
         """Lazily initialize the client in a non-blocking way.
-        
+
         Returns True if client is available and ready.
         """
         if self._available is not None:
             return self._available
-        
+
         async with self._init_lock:
             # Double-check after acquiring lock
             if self._available is not None:
                 return self._available
-            
+
             # Initialize in thread pool to avoid blocking
             loop = asyncio.get_running_loop()
             try:
@@ -330,7 +331,7 @@ class GoogleCloudNLPStrategy(SentimentStrategy):
             except Exception as e:
                 logger.warning("Google Cloud NLP not available", error=str(e))
                 self._available = False
-        
+
         return self._available
 
     @property
@@ -353,7 +354,7 @@ class GoogleCloudNLPStrategy(SentimentStrategy):
                 content=text,
                 type_=language_v1.Document.Type.PLAIN_TEXT,
             )
-            
+
             # Run in thread pool to avoid blocking
             loop = asyncio.get_running_loop()
             response = await loop.run_in_executor(
@@ -384,7 +385,7 @@ class GoogleCloudNLPStrategy(SentimentStrategy):
 
 class LLMSeparateStrategy(SentimentStrategy):
     """Sentiment analysis using a dedicated LLM call.
-    
+
     Reuses the Gemini client from the LLM adapter to avoid
     creating multiple client instances (which causes 'AFC is enabled' spam).
     """
@@ -435,7 +436,7 @@ Where:
         try:
             adapter = self.llm_service.get_adapter(self.provider)
             full_response = ""
-            
+
             async for chunk in adapter.generate_stream(
                 messages=[{"role": "user", "content": f"Analyze sentiment:\n\n{text}"}],
                 model=self.model,
@@ -451,10 +452,10 @@ Where:
                 content = content.split("```")[1].strip()
                 if content.startswith("json"):
                     content = content[4:].strip()
-            
+
             data = json.loads(content)
             score = max(-1.0, min(1.0, float(data.get("score", 0.0))))
-            
+
             return SentimentResult(
                 score=score,
                 label=data.get("label", SentimentResult.score_to_label(score)),
@@ -478,7 +479,7 @@ Where:
 
 class StructuredOutputStrategy(SentimentStrategy):
     """Sentiment analysis integrated with response generation.
-    
+
     This strategy is handled in the chat orchestrator.
     For standalone analysis, it falls back to Cloud NLP.
     """
@@ -500,7 +501,7 @@ class StructuredOutputStrategy(SentimentStrategy):
 
 class SentimentService:
     """Service to manage sentiment analysis strategies.
-    
+
     Uses singleton pattern for provider-agnostic strategies (nlp_api, structured)
     and caches provider-specific strategies (llm_separate) by provider:model.
     Also provides incremental cumulative sentiment analysis.
@@ -511,7 +512,7 @@ class SentimentService:
     def __init__(self, llm_service: LLMService | None = None) -> None:
         self.llm_service = llm_service or get_llm_service()
         self._strategies: dict[str, SentimentStrategy] = {}
-        
+
         # Create shared singleton instances for provider-agnostic strategies
         self._cloud_nlp = GoogleCloudNLPStrategy()
         self._structured = StructuredOutputStrategy(self._cloud_nlp)
@@ -524,7 +525,7 @@ class SentimentService:
         model: str = "gemini-2.5-flash-lite",
     ) -> SentimentStrategy:
         """Get or create a sentiment strategy instance.
-        
+
         Provider-agnostic strategies (nlp_api, structured) are singletons.
         Provider-specific strategies (llm_separate) are cached by provider:model.
         """
@@ -533,10 +534,10 @@ class SentimentService:
             return self._cloud_nlp
         elif method == "structured":
             return self._structured
-        
+
         # Cache provider-specific strategies
         cache_key = f"{method}:{provider}:{model}"
-        
+
         if cache_key not in self._strategies:
             if method == "llm_separate":
                 self._strategies[cache_key] = LLMSeparateStrategy(
@@ -544,7 +545,7 @@ class SentimentService:
                 )
             else:
                 raise ValueError(f"Unknown sentiment method: {method}")
-        
+
         return self._strategies[cache_key]
 
     async def analyze(
@@ -567,7 +568,7 @@ class SentimentService:
         model: str = "gemini-2.5-flash-lite",
     ) -> tuple[SentimentResult, CumulativeState]:
         """Update cumulative sentiment incrementally with a new message.
-        
+
         Returns (SentimentResult for cumulative, new CumulativeState).
         """
         return await self._incremental.update(
@@ -578,8 +579,6 @@ class SentimentService:
         """Get list of available sentiment analysis methods."""
         return self.AVAILABLE_METHODS
 
-
-from functools import lru_cache
 
 
 @lru_cache

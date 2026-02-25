@@ -12,8 +12,9 @@ Optimized with parallel operations and comprehensive caching.
 
 import asyncio
 import time
-from collections.abc import AsyncIterator
-from typing import Any, Awaitable, Coroutine, TypeVar, cast
+from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine
+from functools import lru_cache
+from typing import Any, TypeVar, cast
 
 import orjson
 from sqlalchemy import delete, func, select
@@ -55,14 +56,16 @@ DEFAULT_SYSTEM_PROMPT = """You are Lia, a helpful and friendly AI assistant crea
 - Use light humor when appropriate, but stay helpful"""
 
 
-_sse_event_id = 0
+def make_sse_formatter() -> Callable[[str, dict[str, Any]], str]:
+    """Create an SSE event formatter with its own per-stream counter."""
+    counter = 0
 
+    def sse_event(event_type: str, data: dict[str, Any]) -> str:
+        nonlocal counter
+        counter += 1
+        return f"id: {counter}\nevent: {event_type}\ndata: {orjson.dumps(data).decode()}\n\n"
 
-def sse_event(event_type: str, data: dict[str, Any]) -> str:
-    """Format a Server-Sent Event with auto-incrementing ID."""
-    global _sse_event_id  # noqa: PLW0603
-    _sse_event_id += 1
-    return f"id: {_sse_event_id}\nevent: {event_type}\ndata: {orjson.dumps(data).decode()}\n\n"
+    return sse_event
 
 
 def _create_tracked_task(
@@ -135,7 +138,7 @@ class ChatOrchestrator:
     ) -> AsyncIterator[str]:
         """
         Process a chat message with streaming response.
-        
+
         Yields SSE formatted events:
         - event: start     -> { conversation_id, message_id }
         - event: thought   -> { content }  (model thinking process)
@@ -145,9 +148,10 @@ class ChatOrchestrator:
         - event: error     -> { message }
         """
         start_time = time.monotonic()
+        sse_event = make_sse_formatter()
 
         # Track background tasks for cancellation on disconnect
-        _bg_tasks: list[asyncio.Task] = []
+        _bg_tasks: list[asyncio.Task[Any]] = []
 
         # Extract model settings with defaults and normalize types
         raw_temperature = model_settings.get("temperature", 0.7) if model_settings else 0.7
@@ -215,6 +219,7 @@ class ChatOrchestrator:
                 adapter, context, model, provider, temperature, max_tokens,
                 structured=(sentiment_method == "structured"),
                 result=stream_result,
+                sse_event=sse_event,
             ):
                 yield event
 
@@ -313,6 +318,7 @@ class ChatOrchestrator:
         *,
         structured: bool,
         result: _StreamResult,
+        sse_event: Callable[[str, dict[str, Any]], str],
     ) -> AsyncIterator[str]:
         """Stream LLM response, yielding SSE chunk/thought events.
 
@@ -517,7 +523,7 @@ class ChatOrchestrator:
         offset: int = 0,
     ) -> list[dict[str, Any]]:
         """Get user's conversation history with summaries.
-        
+
         Uses cache-aside pattern: check cache first, fallback to DB.
         Write-through: populate cache on miss in parallel with response.
         Supports pagination via offset/limit.
@@ -527,7 +533,7 @@ class ChatOrchestrator:
             cached = await self.cache_service.get_conversation_history(user_id, limit)
             if cached is not None:
                 return cached
-        
+
         # Cache miss - fetch from database
         result = await db.execute(
             select(
@@ -544,7 +550,7 @@ class ChatOrchestrator:
             .offset(offset)
             .limit(limit)
         )
-        
+
         conversations = [
             {
                 "id": row.id,
@@ -555,14 +561,14 @@ class ChatOrchestrator:
             }
             for row in result.all()
         ]
-        
+
         # Write-through: populate cache asynchronously (first page only)
         if offset == 0 and self.cache_service.is_available:
             _create_tracked_task(
                 self.cache_service.set_conversation_history(user_id, limit, conversations),
                 "cache:set_conversation_history",
             )
-        
+
         return conversations
 
     async def get_conversation_detail(
@@ -575,7 +581,7 @@ class ChatOrchestrator:
         offset: int = 0,
     ) -> dict[str, Any] | None:
         """Get full conversation with all messages.
-        
+
         Uses cache-aside pattern: check cache first, fallback to DB.
         Write-through: populate cache on miss asynchronously.
         Cache entries include user_id for ownership verification.
@@ -592,7 +598,7 @@ class ChatOrchestrator:
                 if cached.get("user_id") != user_id:
                     return None
                 return cached
-        
+
         # Cache miss - fetch conversation from database
         conv_result = await db.execute(
             select(Conversation)
@@ -601,11 +607,11 @@ class ChatOrchestrator:
                 Conversation.user_id == user_id,
             )
         )
-        
+
         conv = conv_result.scalar_one_or_none()
         if not conv:
             return None
-        
+
         # Fetch messages with pagination
         msg_result = await db.execute(
             select(Message)
@@ -644,7 +650,7 @@ class ChatOrchestrator:
                 for m in messages
             ],
         }
-        
+
         # Write-through: populate cache asynchronously
         if use_cache and self.cache_service.is_available:
             _create_tracked_task(
@@ -655,7 +661,7 @@ class ChatOrchestrator:
                 ),
                 "cache:set_conversation_detail",
             )
-        
+
         return detail
 
     async def delete_conversation(
@@ -671,7 +677,7 @@ class ChatOrchestrator:
                 Conversation.user_id == user_id,
             )
         )
-        
+
         conv = result.scalar_one_or_none()
         if not conv:
             return False
@@ -739,14 +745,14 @@ class ChatOrchestrator:
                 Conversation.user_id == user_id,
             )
         )
-        
+
         conv = result.scalar_one_or_none()
         if not conv:
             return False
 
         conv.title = title
         await db.flush()
-        
+
         # Invalidate caches (title appears in history and detail)
         if self.cache_service.is_available:
             await asyncio.gather(
@@ -754,11 +760,9 @@ class ChatOrchestrator:
                 self.cache_service.invalidate_user_history(user_id),
                 return_exceptions=True,
             )
-        
+
         return True
 
-
-from functools import lru_cache
 
 
 @lru_cache

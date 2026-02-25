@@ -417,7 +417,7 @@ export function useChat(options: UseChatOptions = {}) {
 				abortControllerRef.current = null;
 			}
 		},
-		[generateId, stop],
+		[generateId, stop, flushPendingContent],
 	);
 
 	// Regenerate last response - now uses ref for messages

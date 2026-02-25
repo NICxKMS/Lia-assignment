@@ -51,6 +51,7 @@ class ErrorBoundary extends React.Component<
 							{this.state.error?.message}
 						</p>
 						<button
+							type="button"
 							onClick={() => {
 								this.setState({ hasError: false });
 								window.location.reload();

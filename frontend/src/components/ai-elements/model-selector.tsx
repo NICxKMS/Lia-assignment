@@ -67,18 +67,27 @@ const MarqueeText = memo<{ text: string; className?: string }>(
 		const textRef = useRef<HTMLSpanElement>(null);
 		const [shouldAnimate, setShouldAnimate] = useState(false);
 
+		const checkOverflow = useCallback(() => {
+			if (containerRef.current && textRef.current) {
+				setShouldAnimate(
+					textRef.current.scrollWidth > containerRef.current.clientWidth,
+				);
+			}
+		}, []);
+
 		useEffect(() => {
-			const checkOverflow = () => {
-				if (containerRef.current && textRef.current) {
-					setShouldAnimate(
-						textRef.current.scrollWidth > containerRef.current.clientWidth,
-					);
-				}
+			let timeoutId: ReturnType<typeof setTimeout>;
+			const handleResize = () => {
+				clearTimeout(timeoutId);
+				timeoutId = setTimeout(checkOverflow, 150);
 			};
+			window.addEventListener("resize", handleResize);
 			checkOverflow();
-			window.addEventListener("resize", checkOverflow);
-			return () => window.removeEventListener("resize", checkOverflow);
-		}, [text]);
+			return () => {
+				window.removeEventListener("resize", handleResize);
+				clearTimeout(timeoutId);
+			};
+		}, [checkOverflow]);
 
 		return (
 			<div

@@ -2,7 +2,7 @@
 
 from app.core.config import Settings, get_settings
 from app.core.exceptions import (
-    AppException,
+    AppError,
     AuthenticationError,
     AuthorizationError,
     CacheError,
@@ -36,7 +36,7 @@ __all__ = [
     "get_password_hash",
     "verify_password",
     # Exceptions
-    "AppException",
+    "AppError",
     "AuthenticationError",
     "AuthorizationError",
     "CacheError",

@@ -6,11 +6,13 @@ Supports multiple LLM providers with a common interface:
 - Extensible for future providers
 """
 
+import contextlib
 import json
 from abc import ABC, abstractmethod
-from collections.abc import AsyncIterator
-from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable, TypeVar
+from collections.abc import AsyncIterator, Awaitable, Callable
+from dataclasses import dataclass
+from functools import lru_cache
+from typing import Any, TypeVar
 
 import httpx
 from google import genai
@@ -54,7 +56,7 @@ async def _run_with_retry(func: Callable[[], Awaitable[T]]) -> T:
 @dataclass
 class StreamChunk:
     """A single chunk from a streaming LLM response."""
-    
+
     content: str
     is_final: bool = False
     model: str = ""
@@ -67,7 +69,7 @@ class StreamChunk:
 @dataclass
 class StructuredStreamChunk(StreamChunk):
     """A chunk from structured streaming with optional sentiment data."""
-    
+
     sentiment_score: float | None = None
     sentiment_label: str | None = None
     sentiment_emotion: str | None = None
@@ -76,7 +78,7 @@ class StructuredStreamChunk(StreamChunk):
 @dataclass
 class ModelInfo:
     """Information about an LLM model."""
-    
+
     id: str
     name: str
     provider: str
@@ -87,7 +89,7 @@ class ModelInfo:
 
 class ChatWithSentiment(BaseModel):
     """Schema for structured chat response with sentiment."""
-    
+
     response: str
     sentiment_score: float
     sentiment_label: str
@@ -166,7 +168,7 @@ Sentiment fields describe the USER's emotion:
 - sentiment_score: float from -1.0 (very negative) to 1.0 (very positive)
 - sentiment_label: exactly one of "Positive", "Negative", "Neutral"
 - sentiment_emotion: 1-5 word description of the user's emotion"""
-    
+
     return f"{base_prompt}\n\n{prompt}" if base_prompt else prompt
 
 
@@ -202,16 +204,14 @@ def _extract_incremental_content(
                 i += 1
 
         # Unescape content
-        try:
+        with contextlib.suppress(json.JSONDecodeError):
             content = json.loads(f'"{content}"')
-        except json.JSONDecodeError:
-            pass
 
         if len(content) > len(last_content):
             return content[len(last_content):], content
     except Exception:
         pass
-    
+
     return "", last_content
 
 
@@ -219,7 +219,7 @@ class GeminiAdapter(LLMAdapter):
     """Adapter for Google Gemini models."""
 
     provider_name = "gemini"
-    
+
     MODELS = [
         ModelInfo("gemini-2.5-flash", "Gemini 2.5 Flash", "gemini", 1000000, True, True),
         ModelInfo("gemini-2.5-flash-lite", "Gemini 2.5 Flash Lite", "gemini", 1000000, True, True),
@@ -229,10 +229,10 @@ class GeminiAdapter(LLMAdapter):
     def __init__(self, api_key: str | None = None):
         settings = get_settings()
         self.api_key = api_key or settings.gemini_api_key
-        
+
         if not self.api_key:
             logger.warning("Gemini API key not configured")
-        
+
         self.client = genai.Client(api_key=self.api_key)
 
     def get_available_models(self) -> list[ModelInfo]:
@@ -279,7 +279,7 @@ class GeminiAdapter(LLMAdapter):
             raise
         except Exception as e:
             logger.error("Gemini generate_content error", error=str(e), model=resolved_model)
-            raise LLMProviderError("gemini", str(e))
+            raise LLMProviderError("gemini", str(e)) from e
 
     def _to_contents(
         self,
@@ -369,7 +369,7 @@ class GeminiAdapter(LLMAdapter):
             raise LLMProviderError("gemini", f"Invalid request: {e}") from e
         except Exception as e:
             logger.error("Gemini streaming error", error=str(e), model=model)
-            raise LLMProviderError("gemini", str(e))
+            raise LLMProviderError("gemini", str(e)) from e
 
     async def generate_structured_stream(
         self,
@@ -432,7 +432,7 @@ class GeminiAdapter(LLMAdapter):
                 sentiment_score = float(data.get("sentiment_score", 0.0))
                 sentiment_label = data.get("sentiment_label", "Neutral")
                 sentiment_emotion = data.get("sentiment_emotion", "neutral")
-                
+
                 final_content = data.get("response", "")
                 if len(final_content) > len(last_content):
                     yield StructuredStreamChunk(
@@ -459,14 +459,14 @@ class GeminiAdapter(LLMAdapter):
             raise
         except Exception as e:
             logger.error("Gemini structured streaming error", error=str(e), model=model)
-            raise LLMProviderError("gemini", str(e))
+            raise LLMProviderError("gemini", str(e)) from e
 
 
 class OpenAIAdapter(LLMAdapter):
     """Adapter for OpenAI models."""
 
     provider_name = "openai"
-    
+
     MODELS = [
         ModelInfo("gpt-4o", "GPT-4o", "openai", 128000, True, True),
         ModelInfo("gpt-4o-mini", "GPT-4o Mini", "openai", 128000, True, True),
@@ -476,10 +476,10 @@ class OpenAIAdapter(LLMAdapter):
     def __init__(self, api_key: str | None = None):
         settings = get_settings()
         self.api_key = api_key or settings.openai_api_key
-        
+
         if not self.api_key:
             logger.warning("OpenAI API key not configured")
-        
+
         self.client = AsyncOpenAI(api_key=self.api_key)
 
     def get_available_models(self) -> list[ModelInfo]:
@@ -511,7 +511,7 @@ class OpenAIAdapter(LLMAdapter):
             raise
         except Exception as e:
             logger.error("OpenAI generate_content error", error=str(e), model=resolved_model)
-            raise LLMProviderError("openai", str(e))
+            raise LLMProviderError("openai", str(e)) from e
 
     def _to_messages(
         self,
@@ -520,16 +520,16 @@ class OpenAIAdapter(LLMAdapter):
     ) -> list[ChatCompletionMessageParam]:
         """Convert messages to OpenAI format."""
         result: list[ChatCompletionMessageParam] = []
-        
+
         if system_prompt:
             result.append({"role": "system", "content": system_prompt})
-        
+
         for msg in messages:
             result.append({
                 "role": msg["role"],  # type: ignore
                 "content": msg["content"],
             })
-        
+
         return result
 
     async def generate_stream(
@@ -573,7 +573,7 @@ class OpenAIAdapter(LLMAdapter):
             raise LLMProviderError("openai", str(e)) from e
         except Exception as e:
             logger.error("OpenAI streaming error", error=str(e), model=model)
-            raise LLMProviderError("openai", str(e))
+            raise LLMProviderError("openai", str(e)) from e
 
     async def generate_structured_stream(
         self,
@@ -629,7 +629,7 @@ class OpenAIAdapter(LLMAdapter):
                 sentiment_score = float(data.get("sentiment_score", 0.0))
                 sentiment_label = data.get("sentiment_label", "Neutral")
                 sentiment_emotion = data.get("sentiment_emotion", "neutral")
-                
+
                 final_content = data.get("response", "")
                 if len(final_content) > len(last_content):
                     yield StructuredStreamChunk(
@@ -654,12 +654,12 @@ class OpenAIAdapter(LLMAdapter):
             raise
         except Exception as e:
             logger.error("OpenAI structured streaming error", error=str(e), model=model)
-            raise LLMProviderError("openai", str(e))
+            raise LLMProviderError("openai", str(e)) from e
 
 
 class LLMService:
     """Service class to manage LLM adapters.
-    
+
     Supports pre-warming adapters on startup to eliminate
     first-request latency for adapter initialization.
     """
@@ -689,16 +689,16 @@ class LLMService:
                 self._adapters[provider] = OpenAIAdapter()
             else:
                 raise ValueError(f"Unknown LLM provider: {provider}")
-        
+
         return self._adapters[provider]
 
     def prewarm_adapters(self) -> None:
         """Pre-initialize adapters to avoid first-request latency.
-        
+
         Call during application startup to warm up adapter instances.
         """
         settings = get_settings()
-        
+
         # Pre-warm Gemini adapter if configured
         if settings.gemini_api_key:
             try:
@@ -706,7 +706,7 @@ class LLMService:
                 logger.info("Pre-warmed Gemini adapter")
             except Exception as e:
                 logger.warning("Failed to pre-warm Gemini adapter", error=str(e))
-        
+
         # Pre-warm OpenAI adapter if configured
         if settings.openai_api_key:
             try:
@@ -732,8 +732,6 @@ class LLMService:
         """Get list of available providers."""
         return ["gemini", "openai"]
 
-
-from functools import lru_cache
 
 
 @lru_cache

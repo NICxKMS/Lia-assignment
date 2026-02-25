@@ -27,7 +27,7 @@ def add_app_context(
 def setup_logging() -> None:
     """Configure structured logging for the application."""
     settings = get_settings()
-    
+
     # Shared processors for all environments
     shared_processors: list[Processor] = [
         structlog.contextvars.merge_contextvars,
@@ -64,7 +64,7 @@ def setup_logging() -> None:
 
     # Configure standard library logging
     log_level = getattr(logging, settings.log_level)
-    
+
     # Root logger configuration
     logging.basicConfig(
         format="%(message)s",
@@ -79,7 +79,7 @@ def setup_logging() -> None:
     )
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
-    
+
     # Suppress Google GenAI SDK "AFC is enabled" info messages
     # The SDK uses logger name "google_genai.models"
     logging.getLogger("google_genai.models").setLevel(logging.WARNING)

@@ -14,6 +14,7 @@ from app.core.security import (
     create_access_token,
     decode_access_token,
     get_password_hash,
+    needs_rehash,
     verify_password,
     create_refresh_token,
 )
@@ -33,13 +34,12 @@ class TestPasswordHashing:
         assert len(hashed) > len(plain_password)
 
     @pytest.mark.asyncio
-    async def test_password_hash_starts_with_bcrypt_prefix(self):
-        """Test that hash starts with bcrypt identifier."""
+    async def test_password_hash_starts_with_argon2_prefix(self):
+        """Test that hash starts with argon2 identifier."""
         hashed = await get_password_hash("password123")
-        
-        # bcrypt hashes start with $2a$ or $2b$
-        assert hashed.startswith("$2")
 
+        # argon2 hashes start with $argon2id$
+        assert hashed.startswith("$argon2")
     @pytest.mark.asyncio
     async def test_password_hash_unique_each_time(self):
         """Test that same password produces different hashes (salting)."""

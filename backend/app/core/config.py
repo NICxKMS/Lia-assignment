@@ -79,6 +79,7 @@ class Settings(BaseSettings):
     rate_limit_enabled: bool = Field(default=True)
     rate_limit_requests_per_minute: int = Field(default=60, ge=1)
     rate_limit_chat_requests_per_minute: int = Field(default=20, ge=1)
+    rate_limit_auth_requests_per_minute: int = Field(default=10, description="Auth rate limit per minute")
 
     # ========== Application ==========
     app_name: str = "Lia Chatbot"
@@ -95,22 +96,22 @@ class Settings(BaseSettings):
     otel_service_name: str = "lia-backend"
 
     # ========== Computed Properties ==========
-    @computed_field
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def cors_origins(self) -> list[str]:
         """Parse CORS origins from comma-separated string."""
         return [origin.strip() for origin in self.cors_origins_str.split(",") if origin.strip()]
 
-    @computed_field
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def redis_available(self) -> bool:
         """Check if Redis credentials are configured."""
         return bool(self.upstash_redis_rest_url and self.upstash_redis_rest_token)
 
-    @computed_field
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def processed_database_url(self) -> str:
-        """Convert database URL for asyncpg compatibility with Neon / Supabase."""
+        """Convert database URL for asyncpg compatibility with Supabase/Neon."""
         url = self.database_url
         # Neon uses sslmode, asyncpg uses ssl
         replacements = [
@@ -120,14 +121,15 @@ class Settings(BaseSettings):
         ]
         for old, new in replacements:
             url = url.replace(old, new)
-        # Ensure pgbouncer flag for Supabase pooler connections
-        if "pooler.supabase.com" in url and "pgbouncer=true" not in url:
-            separator = "&" if "?" in url else "?"
-            url += f"{separator}pgbouncer=true"
+        # Strip pgbouncer=true - it's a Supabase routing param that asyncpg can't handle.
+        # Pgbouncer compatibility is achieved via statement_cache_size=0 in connect_args.
+        url = url.replace("?pgbouncer=true&", "?")
+        url = url.replace("&pgbouncer=true", "")
+        url = url.replace("?pgbouncer=true", "")
         return url
 
 
 @lru_cache
 def get_settings() -> Settings:
     """Get cached settings instance."""
-    return Settings()
+    return Settings()  # type: ignore[call-arg]

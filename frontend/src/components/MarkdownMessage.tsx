@@ -52,6 +52,7 @@ const CodeBlock = memo<{
 				</div>
 			)}
 			<button
+				type="button"
 				onClick={handleCopy}
 				className="absolute top-2 right-2 p-1.5 rounded-md bg-muted/80 hover:bg-muted text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition-all"
 				aria-label="Copy code"

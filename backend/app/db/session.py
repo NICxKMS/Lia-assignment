@@ -94,7 +94,7 @@ def get_session_factory() -> async_sessionmaker[AsyncSession]:
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """FastAPI dependency that provides an async database session.
-    
+
     Automatically handles commit on success and rollback on exception.
     """
     session_factory = get_session_factory()
@@ -110,7 +110,7 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 @asynccontextmanager
 async def get_db_context() -> AsyncGenerator[AsyncSession, None]:
     """Context manager for database sessions outside of FastAPI.
-    
+
     Useful for background tasks, migrations, etc.
     """
     session_factory = get_session_factory()
@@ -125,7 +125,7 @@ async def get_db_context() -> AsyncGenerator[AsyncSession, None]:
 
 async def init_db() -> None:
     """Initialize database tables.
-    
+
     Creates all tables defined in the models if they don't exist.
     For production, use Alembic migrations instead.
     """
@@ -148,7 +148,7 @@ async def close_db() -> None:
         engine = get_engine()
     except Exception:
         return
-    
+
     await engine.dispose()
     get_engine.cache_clear()
     get_session_factory.cache_clear()
@@ -158,17 +158,18 @@ async def close_db() -> None:
 async def check_db_health(timeout: float = 5.0) -> bool:
     """Check database connectivity with timeout."""
     import asyncio
+
     from sqlalchemy import text
-    
+
     async def _check() -> bool:
         engine = get_engine()
         async with engine.connect() as conn:
             await conn.execute(text("SELECT 1"))
         return True
-    
+
     try:
         return await asyncio.wait_for(_check(), timeout=timeout)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         logger.error("Database health check timed out", timeout=timeout)
         return False
     except Exception as e:

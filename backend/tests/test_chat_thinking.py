@@ -16,7 +16,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Conversation, Message, User
-from app.services.chat import ChatOrchestrator, sse_event
+from app.services.chat import ChatOrchestrator, make_sse_formatter
 from app.services.llm import StreamChunk, StructuredStreamChunk, LLMService
 from app.services.sentiment import SentimentResult, CumulativeState
 from app.services.cache import CacheService
@@ -27,6 +27,7 @@ class TestSSEThoughtEvents:
 
     def test_sse_thought_event_format(self):
         """Test thought SSE event format."""
+        sse_event = make_sse_formatter()
         event = sse_event("thought", {"content": "Let me think..."})
         
         assert "event: thought\n" in event
@@ -36,6 +37,7 @@ class TestSSEThoughtEvents:
 
     def test_sse_chunk_event_format(self):
         """Test regular chunk SSE event format."""
+        sse_event = make_sse_formatter()
         event = sse_event("chunk", {"content": "Hello"})
         
         assert "event: chunk\n" in event

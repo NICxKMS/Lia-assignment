@@ -75,7 +75,7 @@ const groupConversations = (
 
 	return order
 		.filter((label) => groups.has(label))
-		.map((label) => ({ label, items: groups.get(label)! }));
+		.map((label) => ({ label, items: groups.get(label) ?? [] }));
 };
 
 // ============ Sub-components ============
@@ -132,6 +132,7 @@ const ConversationItem = memo<{
 			<span className="flex-1 truncate text-sm font-medium">{title}</span>
 
 			<button
+				type="button"
 				onClick={handleDelete}
 				className={cn(
 					"opacity-0 group-hover:opacity-100 p-1 rounded",

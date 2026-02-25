@@ -266,6 +266,15 @@ const MessageItem = memo<{
 	return (
 		<div
 			id={`message-${msg.id}`}
+			role="button"
+			tabIndex={0}
+			aria-label={`${isUser ? "Your" : "Assistant"} message`}
+			onKeyDown={(e) => {
+				if (e.key === "Enter" || e.key === " ") {
+					e.preventDefault();
+					onSelect?.();
+				}
+			}}
 			className={cn(
 				"relative group py-4 animate-in fade-in slide-in-from-bottom-2 duration-300",
 				isUser && "flex justify-end",
@@ -336,10 +345,10 @@ const MessageItem = memo<{
 					{/* File attachments */}
 					{fileParts.length > 0 && (
 						<div className="flex flex-wrap gap-2 mt-3">
-							{fileParts.map((file, idx) =>
+							{fileParts.map((file) =>
 								file.mediaType?.startsWith("image/") ? (
 									<img
-										key={idx}
+										key={file.url || file.filename}
 										src={file.url}
 										alt={file.filename || "Attachment"}
 										className="max-w-xs rounded-lg border border-border shadow-sm"
@@ -347,7 +356,7 @@ const MessageItem = memo<{
 									/>
 								) : (
 									<a
-										key={idx}
+										key={file.url || file.filename}
 										href={file.url}
 										target="_blank"
 										rel="noopener noreferrer"
@@ -370,7 +379,7 @@ const MessageItem = memo<{
 						<div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-border/30">
 							{sourceParts.map((source, idx) => (
 								<a
-									key={idx}
+									key={source.url}
 									href={source.url}
 									target="_blank"
 									rel="noopener noreferrer"
@@ -431,9 +440,10 @@ const EmptyState = memo<{ onSuggestionSelect: (text: string) => void }>(
 			</div>
 
 			<div className="max-w-2xl w-full grid grid-cols-1 sm:grid-cols-2 gap-3">
-				{SUGGESTIONS.map((suggestion, idx) => (
+				{SUGGESTIONS.map((suggestion) => (
 					<button
-						key={idx}
+						type="button"
+						key={suggestion}
 						onClick={() => onSuggestionSelect(suggestion)}
 						className="text-left p-4 rounded-xl border border-border bg-card hover:bg-accent/50 transition-colors text-sm text-muted-foreground hover:text-foreground"
 					>

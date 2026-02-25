@@ -1,9 +1,10 @@
 """Authentication API endpoints."""
 
 import asyncio
-from datetime import datetime, timedelta
+import contextlib
 from typing import Annotated
 
+from argon2 import PasswordHasher
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import JSONResponse
 from sqlalchemy import or_, select
@@ -14,7 +15,7 @@ from app.api.schemas import TokenResponse, UserCreate, UserLogin, UserResponse
 from app.core.config import get_settings
 from app.core.exceptions import RateLimitError
 from app.core.logging import get_logger
-from app.core.security import create_access_token, get_password_hash, verify_password
+from app.core.security import create_access_token, get_password_hash, needs_rehash, verify_password
 from app.core.tasks import create_background_task
 from app.db.models import User
 from app.services.cache import CacheService, get_cache_service
@@ -22,6 +23,9 @@ from app.services.rate_limit import RateLimitService, get_rate_limit_service
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/auth", tags=["Authentication"])
+
+_ph = PasswordHasher()
+_DUMMY_HASH = _ph.hash("dummy-timing-defense")
 
 
 @router.post(
@@ -39,14 +43,14 @@ async def register(
     db: DBSession,
     cache: Annotated[CacheService, Depends(get_cache_service)],
     rate_limiter: Annotated[RateLimitService, Depends(get_rate_limit_service)],
-) -> TokenResponse:
+) -> Response:
     """
     Register a new user account.
-    
+
     - **email**: Valid email address (unique)
     - **username**: 3-50 characters, alphanumeric with _ and - (unique)
     - **password**: 8-100 characters
-    
+
     Uses write-through caching: DB + Cache writes in parallel.
     """
     settings = get_settings()
@@ -59,7 +63,7 @@ async def register(
 
     # Start password hashing in parallel (CPU-bound, safe to run concurrently)
     password_hash_task = asyncio.create_task(get_password_hash(user_data.password))
-    
+
     # Check if email or username already exists (single query to prevent enumeration)
     existing = await db.execute(
         select(User).where(
@@ -90,7 +94,7 @@ async def register(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="An account with this email or username already exists",
-        )
+        ) from None
     await db.refresh(user)
 
     # Capture user data immediately while session is valid
@@ -152,13 +156,13 @@ async def login(
     db: DBSession,
     cache: Annotated[CacheService, Depends(get_cache_service)],
     rate_limiter: Annotated[RateLimitService, Depends(get_rate_limit_service)],
-) -> TokenResponse:
+) -> Response:
     """
     Authenticate user and return JWT token.
-    
+
     - **email**: Registered email address
     - **password**: User password
-    
+
     Uses cache-first lookup for faster authentication.
     """
     settings = get_settings()
@@ -175,10 +179,8 @@ async def login(
 
     if not user:
         # Perform dummy bcrypt to prevent timing-based user enumeration
-        try:
-            await verify_password("dummy_password", "$2b$12$abcdefghijklmnopqrstuvABCDEFGHIJKLMNOPQRSTUVWXYZ01234")
-        except Exception:
-            pass
+        with contextlib.suppress(Exception):
+            await verify_password("dummy_password", _DUMMY_HASH)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
@@ -192,6 +194,12 @@ async def login(
             detail="Invalid email or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+    # Rehash legacy bcrypt passwords to argon2
+    if needs_rehash(user.hashed_password):
+        user.hashed_password = await get_password_hash(credentials.password)
+        db.add(user)
+        await db.flush()
 
     logger.info("User logged in", user_id=user.id, username=user.username)
 
@@ -256,14 +264,14 @@ async def get_current_user_info(
 )
 async def refresh_token(
     current_user: CurrentUser,
-) -> TokenResponse:
+) -> Response:
     """
     Refresh the access token for the current user.
-    
+
     Requires a valid (non-expired) token.
     """
     settings = get_settings()
-    
+
     # Generate new access token
     access_token = create_access_token(data={"sub": str(current_user.id)})
     expires_in = settings.jwt_access_token_expire_days * 24 * 60 * 60
@@ -291,7 +299,7 @@ async def refresh_token(
     "/logout",
     summary="Logout and clear auth cookie",
 )
-async def logout():
+async def logout() -> JSONResponse:
     """Clear the authentication cookie."""
     settings = get_settings()
     response = JSONResponse(content={"message": "Logged out"})

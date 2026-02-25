@@ -51,7 +51,7 @@ const ChatInput = memo<ChatInputProps>(
 			const textarea = textareaRef.current;
 			if (!textarea) return;
 			textarea.style.height = "auto";
-			textarea.style.height = Math.min(textarea.scrollHeight, 200) + "px";
+			textarea.style.height = `${Math.min(textarea.scrollHeight, 200)}px`;
 		}, []);
 
 		useEffect(() => adjustHeight(), [input, adjustHeight]);
@@ -77,7 +77,10 @@ const ChatInput = memo<ChatInputProps>(
 		const handleModelChange = useCallback(
 			(value: string) => {
 				setModel(value);
-				setProvider(value.includes("gpt") ? "openai" : "gemini");
+				const model = defaultModels.find((m) => m.id === value);
+				setProvider(
+					model?.provider?.toLowerCase() === "openai" ? "openai" : "gemini",
+				);
 			},
 			[setModel, setProvider],
 		);

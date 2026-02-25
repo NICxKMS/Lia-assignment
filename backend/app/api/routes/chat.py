@@ -3,6 +3,7 @@
 import json
 from collections.abc import AsyncGenerator
 from typing import Annotated, Any
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
@@ -45,14 +46,14 @@ async def send_message_stream(
 ) -> StreamingResponse:
     """
     Send a chat message and receive a streaming AI response with sentiment analysis.
-    
+
     **SSE Event Types:**
     - `start`: Stream started with conversation_id and message_id
     - `chunk`: Content chunk from AI response
     - `sentiment`: Sentiment analysis results (message and cumulative)
     - `done`: Stream completed
     - `error`: Error occurred
-    
+
     **Request Formats:**
     - Legacy: `{"message": "Hello"}`
     - AI SDK: `{"messages": [{"id": "1", "role": "user", "parts": [{"type": "text", "text": "Hello"}]}]}`
@@ -67,7 +68,7 @@ async def send_message_stream(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
-        )
+        ) from e
 
     async def event_generator() -> AsyncGenerator[str, None]:
         try:
@@ -81,7 +82,7 @@ async def send_message_stream(
                     "frequency_penalty": request.model_settings.frequency_penalty,
                     "presence_penalty": request.model_settings.presence_penalty,
                 }
-            
+
             async for event in orchestrator.process_chat_stream(
                 db=db,
                 user=current_user,
@@ -123,7 +124,7 @@ async def get_history(
 ) -> list[ConversationSummary]:
     """
     Get the conversation history for the current user.
-    
+
     Returns a list of conversation summaries sorted by most recent first.
     Supports pagination via `offset` and `limit` query parameters.
     """
@@ -142,7 +143,7 @@ async def get_history(
     },
 )
 async def get_conversation(
-    conversation_id: str,
+    conversation_id: UUID,
     current_user: CurrentUser,
     db: DBSession,
     orchestrator: Annotated[ChatOrchestrator, Depends(get_chat_orchestrator)],
@@ -151,19 +152,19 @@ async def get_conversation(
 ) -> ConversationDetail:
     """
     Get a specific conversation with all messages.
-    
+
     - **conversation_id**: UUID of the conversation
     """
     conversation = await orchestrator.get_conversation_detail(
-        db, current_user.id, conversation_id, limit=limit, offset=offset
+        db, current_user.id, str(conversation_id), limit=limit, offset=offset
     )
-    
+
     if not conversation:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Conversation not found",
         )
-    
+
     return ConversationDetail(**conversation)
 
 
@@ -176,22 +177,22 @@ async def get_conversation(
     },
 )
 async def delete_conversation(
-    conversation_id: str,
+    conversation_id: UUID,
     current_user: CurrentUser,
     db: DBSession,
     orchestrator: Annotated[ChatOrchestrator, Depends(get_chat_orchestrator)],
 ) -> DeleteResponse:
     """
     Delete a specific conversation and all its messages.
-    
+
     - **conversation_id**: UUID of the conversation to delete
     """
-    if not await orchestrator.delete_conversation(db, current_user.id, conversation_id):
+    if not await orchestrator.delete_conversation(db, current_user.id, str(conversation_id)):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Conversation not found",
         )
-    
+
     return DeleteResponse(
         success=True,
         message="Conversation deleted successfully",
@@ -210,7 +211,7 @@ async def delete_all_conversations(
 ) -> DeleteResponse:
     """Delete all conversations for the current user."""
     count = await orchestrator.delete_all_conversations(db, current_user.id)
-    
+
     return DeleteResponse(
         success=True,
         message=f"Deleted {count} conversation(s)",
@@ -227,7 +228,7 @@ async def delete_all_conversations(
     },
 )
 async def rename_conversation(
-    conversation_id: str,
+    conversation_id: UUID,
     rename_request: ConversationRename,
     current_user: CurrentUser,
     db: DBSession,
@@ -235,18 +236,18 @@ async def rename_conversation(
 ) -> SuccessResponse:
     """
     Rename a conversation.
-    
+
     - **conversation_id**: UUID of the conversation
     - **title**: New title (1-255 characters)
     """
     if not await orchestrator.rename_conversation(
-        db, current_user.id, conversation_id, rename_request.title
+        db, current_user.id, str(conversation_id), rename_request.title
     ):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Conversation not found",
         )
-    
+
     return SuccessResponse(
         success=True,
         message="Conversation renamed successfully",
@@ -261,25 +262,25 @@ async def get_available_models(
     orchestrator: Annotated[ChatOrchestrator, Depends(get_chat_orchestrator)],
 ) -> dict[str, list[dict[str, Any]]]:
     """Get available LLM models grouped by provider.
-    
+
     Results are cached for 24 hours for improved latency.
     Static data - rarely changes.
     """
     cache = orchestrator.cache_service
-    
+
     # Try cache first
     if cache.is_available:
         cached = await cache.get_available_models()
         if cached is not None:
             return cached
-    
+
     # Fetch from service (static data)
     models = orchestrator.llm_service.get_all_models()
-    
+
     # Cache for future requests (fire and forget for static data)
     if cache.is_available:
         create_background_task(cache.set_available_models(models), name="cache_models")
-    
+
     return models
 
 
@@ -292,23 +293,23 @@ async def get_sentiment_methods(
     orchestrator: Annotated[ChatOrchestrator, Depends(get_chat_orchestrator)],
 ) -> list[str]:
     """Get available sentiment analysis methods.
-    
+
     Results are cached for 24 hours for improved latency.
     Static data - rarely changes.
     """
     cache = orchestrator.cache_service
-    
+
     # Try cache first
     if cache.is_available:
         cached = await cache.get_sentiment_methods()
         if cached is not None:
             return cached
-    
+
     # Fetch from service (static data)
     methods = orchestrator.sentiment_service.get_available_methods()
-    
+
     # Cache for future requests (fire and forget for static data)
     if cache.is_available:
         create_background_task(cache.set_sentiment_methods(methods), name="cache_methods")
-    
+
     return methods

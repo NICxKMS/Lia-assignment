@@ -16,7 +16,7 @@ def _get_cors_headers(request: Request) -> dict[str, str]:
     # Import here to avoid circular imports
     from app.core.config import get_settings
     settings = get_settings()
-    
+
     # Check if origin is allowed
     if origin and (origin in settings.cors_origins or "*" in settings.cors_origins):
         return {
@@ -28,7 +28,7 @@ def _get_cors_headers(request: Request) -> dict[str, str]:
     return {}
 
 
-class AppException(Exception):
+class AppError(Exception):
     """Base application exception."""
 
     def __init__(
@@ -43,42 +43,42 @@ class AppException(Exception):
         super().__init__(message)
 
 
-class AuthenticationError(AppException):
+class AuthenticationError(AppError):
     """Authentication failed."""
 
     def __init__(self, message: str = "Authentication failed"):
         super().__init__(message, status.HTTP_401_UNAUTHORIZED)
 
 
-class AuthorizationError(AppException):
+class AuthorizationError(AppError):
     """Authorization failed."""
 
     def __init__(self, message: str = "Not authorized"):
         super().__init__(message, status.HTTP_403_FORBIDDEN)
 
 
-class NotFoundError(AppException):
+class NotFoundError(AppError):
     """Resource not found."""
 
     def __init__(self, resource: str = "Resource"):
         super().__init__(f"{resource} not found", status.HTTP_404_NOT_FOUND)
 
 
-class ConflictError(AppException):
+class ConflictError(AppError):
     """Resource conflict (e.g., duplicate)."""
 
     def __init__(self, message: str = "Resource already exists"):
         super().__init__(message, status.HTTP_409_CONFLICT)
 
 
-class ValidationError(AppException):
+class ValidationError(AppError):
     """Validation error."""
 
     def __init__(self, message: str, details: dict[str, Any] | None = None):
         super().__init__(message, status.HTTP_422_UNPROCESSABLE_ENTITY, details)
 
 
-class RateLimitError(AppException):
+class RateLimitError(AppError):
     """Rate limit exceeded."""
 
     def __init__(self, retry_after: int = 60):
@@ -89,7 +89,7 @@ class RateLimitError(AppException):
         )
 
 
-class LLMProviderError(AppException):
+class LLMProviderError(AppError):
     """LLM provider error."""
 
     def __init__(self, provider: str, message: str):
@@ -100,21 +100,21 @@ class LLMProviderError(AppException):
         )
 
 
-class DatabaseError(AppException):
+class DatabaseError(AppError):
     """Database operation error."""
 
     def __init__(self, message: str = "Database operation failed"):
         super().__init__(message, status.HTTP_503_SERVICE_UNAVAILABLE)
 
 
-class CacheError(AppException):
+class CacheError(AppError):
     """Cache operation error (non-fatal, logged only)."""
 
     def __init__(self, message: str = "Cache operation failed"):
         super().__init__(message, status.HTTP_503_SERVICE_UNAVAILABLE)
 
 
-async def app_exception_handler(request: Request, exc: AppException) -> JSONResponse:
+async def app_exception_handler(request: Request, exc: AppError) -> JSONResponse:
     """Handle application exceptions."""
     logger.warning(
         "Application exception",
@@ -123,7 +123,7 @@ async def app_exception_handler(request: Request, exc: AppException) -> JSONResp
         details=exc.details,
         path=str(request.url),
     )
-    
+
     headers = _get_cors_headers(request)
 
     # Add Retry-After header for 429 rate-limit responses
@@ -152,7 +152,7 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> JSONRe
         detail=exc.detail,
         path=str(request.url),
     )
-    
+
     return JSONResponse(
         status_code=exc.status_code,
         content={
@@ -171,7 +171,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
         exc_info=exc,
         path=str(request.url),
     )
-    
+
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={

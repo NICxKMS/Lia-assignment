@@ -103,7 +103,7 @@ const ModelSettingsDialog = memo<ModelSettingsDialogProps>(
 											"maxTokens",
 											Math.min(
 												32000,
-												Math.max(1, parseInt(e.target.value) || 1),
+												Math.max(1, parseInt(e.target.value, 10) || 1),
 											),
 										)
 									}

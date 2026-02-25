@@ -2,6 +2,7 @@
 
 import asyncio
 from logging.config import fileConfig
+from typing import Any
 
 from sqlalchemy import pool, text
 from sqlalchemy.engine import Connection
@@ -64,12 +65,23 @@ def do_run_migrations(connection: Connection) -> None:
 async def run_async_migrations() -> None:
     """Run migrations in 'online' mode with async engine."""
     configuration = config.get_section(config.config_ini_section, {})
-    configuration["sqlalchemy.url"] = get_url()
-    
+    url = get_url()
+    configuration["sqlalchemy.url"] = url
+
+    # Determine connect_args for asyncpg (skip for sqlite)
+    connect_args: dict[str, Any] = {}
+    if not url.startswith("sqlite"):
+        connect_args = {
+            "statement_cache_size": 0,
+            "prepared_statement_cache_size": 0,
+            "timeout": 10,
+        }
+
     connectable = async_engine_from_config(
         configuration,
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
+        connect_args=connect_args,
     )
 
     async with connectable.connect() as connection:
